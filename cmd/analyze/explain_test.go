@@ -67,6 +67,8 @@ func newExplainTestModel(t *testing.T, recorder *recordingExplainBackend) model 
 	}
 	m.entriesAll = m.entries
 	m.explain = newExplainSession(recorder.backend())
+	// No app inventory or Spotlight lookups: UI tests stay hermetic.
+	m.explain.sources = explainSources{}
 	// Cancel only: requests a test dispatches but never runs would hold
 	// shutdownExplain for its whole grace period.
 	t.Cleanup(m.explain.cancel)

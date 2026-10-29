@@ -24,6 +24,7 @@ func TestBuildExplainPromptDescribesTargetWithoutFileContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	listing, _ := readExplainDir(target)
 
 	prompt := buildExplainPrompt([]explainPromptItem{{
 		id: "1",
@@ -35,7 +36,7 @@ func TestBuildExplainPromptDescribesTargetWithoutFileContents(t *testing.T) {
 			LastAccess: now.Add(-120 * 24 * time.Hour),
 			Cleanable:  true,
 		},
-		facts: explainFacts{contents: readExplainContents(target)},
+		facts: explainFacts{contents: listing},
 	}}, explainQuick, now)
 
 	for _, want := range []string{
@@ -77,6 +78,36 @@ func TestBuildExplainPromptListsCachedSizes(t *testing.T) {
 	}
 }
 
+func TestBuildExplainPromptDescribesLocalFacts(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	describe := func(facts explainFacts) string {
+		return buildExplainPrompt([]explainPromptItem{{id: "1", target: explainTarget{Path: "/x", Size: -1}, facts: facts}}, explainQuick, now)
+	}
+	tests := []struct {
+		name  string
+		facts explainFacts
+		want  string
+	}{
+		{name: "newest change", facts: explainFacts{newestChange: now.Add(-3 * 24 * time.Hour)}, want: "- Dernière modification : il y a 3 jours"},
+		{name: "installed owner", facts: explainFacts{owner: explainOwner{kind: explainOwnerInstalled, token: "com.docker.docker", app: installedApp{Name: "Docker"}}}, want: "app installée « Docker » (com.docker.docker)"},
+		{name: "missing owner id", facts: explainFacts{owner: explainOwner{kind: explainOwnerMissing, token: "com.docker.docker"}}, want: "Identifiant « com.docker.docker » : aucune app installée ne le porte"},
+		{name: "missing owner name", facts: explainFacts{owner: explainOwner{kind: explainOwnerMissing, token: "Code"}}, want: "Nom « Code » : aucune app installée de ce nom"},
+		{name: "apple owner", facts: explainFacts{owner: explainOwner{kind: explainOwnerApple, token: "com.apple.akd"}}, want: "Identifiant Apple « com.apple.akd » : composant de macOS"},
+		{name: "download with page", facts: explainFacts{downloadedFrom: []string{"https://a/x.dmg", "https://a/"}}, want: "- Téléchargé depuis : https://a/x.dmg (page : https://a/)"},
+		{name: "download alone", facts: explainFacts{downloadedFrom: []string{"https://a/x.dmg"}}, want: "- Téléchargé depuis : https://a/x.dmg\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if prompt := describe(tt.facts); !strings.Contains(prompt, tt.want) {
+				t.Fatalf("prompt lacks %q:\n%s", tt.want, prompt)
+			}
+		})
+	}
+	if prompt := describe(explainFacts{}); strings.Contains(prompt, "app installée") || strings.Contains(prompt, "Dernière modification") {
+		t.Fatalf("absent facts must stay out of the prompt:\n%s", prompt)
+	}
+}
+
 func TestBuildExplainPromptNumbersBatchItems(t *testing.T) {
 	prompt := buildExplainPrompt([]explainPromptItem{
 		{id: "1", target: explainTarget{Path: "/x/a", Size: -1}},
@@ -98,43 +129,6 @@ func TestExplainAgeLabel(t *testing.T) {
 		if got := explainAgeLabel(now.Add(-tt.age), now); got != tt.want {
 			t.Fatalf("explainAgeLabel(-%s) = %q, want %q", tt.age, got, tt.want)
 		}
-	}
-}
-
-func TestReadExplainContentsIsBounded(t *testing.T) {
-	dir := t.TempDir()
-	for i := range 100 {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file-%03d", i)), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	contents := readExplainContents(dir)
-	if len(contents.Children) != explainMaxListedChildren || !contents.Truncated {
-		t.Fatalf("children = %d, truncated = %v", len(contents.Children), contents.Truncated)
-	}
-	for i := 1; i < len(contents.Children); i++ {
-		if contents.Children[i-1].Name > contents.Children[i].Name {
-			t.Fatalf("listing not sorted: %q before %q", contents.Children[i-1].Name, contents.Children[i].Name)
-		}
-	}
-	for _, child := range contents.Children {
-		if child.Size >= 0 {
-			t.Fatalf("uncached listing must not claim a size: %+v", child)
-		}
-	}
-}
-
-func TestReadExplainContentsReportsUnreadableDirectory(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "locked")
-	if err := os.Mkdir(dir, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
-
-	contents := readExplainContents(dir)
-	if len(contents.Children) != 0 || !strings.Contains(contents.Note, "permission refusée") {
-		t.Fatalf("contents = %+v, want a permission note", contents)
 	}
 }
 

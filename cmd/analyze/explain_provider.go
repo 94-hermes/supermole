@@ -353,13 +353,15 @@ func findExplainBinary(name string) (string, error) {
 	if path, err := exec.LookPath(name); err == nil {
 		return path, nil
 	}
+	// Without a home directory only the system locations are searched.
 	home, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		home = ""
+	}
 	for _, dir := range explainBinaryDirs {
-		if rest, isHomeRelative := strings.CutPrefix(dir, "~/"); isHomeRelative {
-			if homeErr != nil {
-				continue
-			}
-			dir = filepath.Join(home, rest)
+		dir, ok := expandHomeDir(dir, home)
+		if !ok {
+			continue
 		}
 		candidate := filepath.Join(dir, name)
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {

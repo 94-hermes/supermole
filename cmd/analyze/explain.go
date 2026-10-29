@@ -49,6 +49,7 @@ type explainSession struct {
 	cancel    context.CancelFunc
 	inFlight  *sync.WaitGroup
 	backend   explainBackend
+	sources   explainSources
 	entries   map[string]explainEntry
 	nextID    int64
 	panelOpen bool
@@ -61,6 +62,7 @@ func newExplainSession(backend explainBackend) explainSession {
 		cancel:   cancel,
 		inFlight: &sync.WaitGroup{},
 		backend:  backend,
+		sources:  defaultExplainSources(),
 		entries:  make(map[string]explainEntry),
 	}
 }
@@ -199,7 +201,7 @@ func (m model) startExplain(target explainTarget, mode explainMode) (tea.Model, 
 	job := explainJob{requestID: m.explain.nextID, mode: mode, items: []explainJobItem{m.explainJobItem(target)}}
 	m.explain.entries[target.Path] = explainEntry{state: explainLoading, mode: mode, requestID: job.requestID, startedAt: time.Now()}
 	m.explain.inFlight.Add(1)
-	return m, tea.Batch(explainCmd(m.explain.ctx, m.explain.inFlight, m.explain.backend, job), m.startTick())
+	return m, tea.Batch(m.explain.command(job), m.startTick())
 }
 
 // explainJobItem copies what a worker needs from the scan cache, which
@@ -213,16 +215,17 @@ func (m model) explainJobItem(target explainTarget) explainJobItem {
 	return item
 }
 
-func explainCmd(ctx context.Context, inFlight *sync.WaitGroup, backend explainBackend, job explainJob) tea.Cmd {
+// command runs job on a worker. The caller has already counted it in inFlight.
+func (s explainSession) command(job explainJob) tea.Cmd {
 	return func() tea.Msg {
-		defer inFlight.Done()
-		return explainResultMsg{requestID: job.requestID, outcomes: runExplainJob(ctx, backend, job)}
+		defer s.inFlight.Done()
+		return explainResultMsg{requestID: job.requestID, outcomes: runExplainJob(s.ctx, s.backend, s.sources, job)}
 	}
 }
 
 // runExplainJob asks for every row of the job in one request and returns one
 // outcome per row: its answer, or why it has none.
-func runExplainJob(ctx context.Context, backend explainBackend, job explainJob) map[string]explainOutcome {
+func runExplainJob(ctx context.Context, backend explainBackend, sources explainSources, job explainJob) map[string]explainOutcome {
 	outcomes := make(map[string]explainOutcome, len(job.items))
 	failAll := func(err error) map[string]explainOutcome {
 		for _, item := range job.items {
@@ -243,7 +246,7 @@ func runExplainJob(ctx context.Context, backend explainBackend, job explainJob) 
 	promptItems := make([]explainPromptItem, len(job.items))
 	for i, item := range job.items {
 		ids[i] = strconv.Itoa(i + 1)
-		promptItems[i] = explainPromptItem{id: ids[i], target: item.target, facts: gatherExplainFacts(item)}
+		promptItems[i] = explainPromptItem{id: ids[i], target: item.target, facts: gatherExplainFacts(ctx, item, sources)}
 	}
 
 	var answers map[string]explanation
@@ -273,19 +276,6 @@ func runExplainJob(ctx context.Context, backend explainBackend, job explainJob) 
 		outcomes[item.target.Path] = explainOutcome{result: result}
 	}
 	return outcomes
-}
-
-// gatherExplainFacts collects what Mole knows locally about one row. It runs
-// on a worker, never on the event loop.
-func gatherExplainFacts(item explainJobItem) explainFacts {
-	var facts explainFacts
-	switch {
-	case item.cached != nil:
-		facts.contents = *item.cached
-	case item.target.IsDir:
-		facts.contents = readExplainContents(item.target.Path)
-	}
-	return facts
 }
 
 // explainWorkDir is the one directory an agent may read. The quick pass and a
