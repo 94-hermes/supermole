@@ -269,6 +269,12 @@ type model struct {
 	liveEntriesDirty    bool
 	autoSortLiveEntries bool
 	liveSortMode        liveSortMode
+	explain             explainSession
+}
+
+// listViewport is the list row budget left once the explain panel takes its share.
+func (m model) listViewport(isLargeFiles bool) int {
+	return calculateViewport(m.height-m.explainPanelRows(), isLargeFiles)
 }
 
 func (m model) inOverviewMode() bool {
@@ -353,7 +359,7 @@ func (m *model) clampEntrySelection() {
 	if m.selected < 0 {
 		m.selected = 0
 	}
-	viewport := calculateViewport(m.height, false)
+	viewport := m.listViewport(false)
 	maxOffset := max(len(m.entries)-viewport, 0)
 	if m.offset > maxOffset {
 		m.offset = maxOffset
@@ -378,7 +384,7 @@ func (m *model) clampLargeSelection() {
 	if m.largeSelected < 0 {
 		m.largeSelected = 0
 	}
-	viewport := calculateViewport(m.height, true)
+	viewport := m.listViewport(true)
 	maxOffset := max(len(m.largeFiles)-viewport, 0)
 	if m.largeOffset > maxOffset {
 		m.largeOffset = maxOffset

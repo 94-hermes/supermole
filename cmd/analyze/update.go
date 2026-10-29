@@ -603,6 +603,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case explainResultMsg:
+		return m.handleExplainResult(msg)
 	case tickMsg:
 		m.flushLiveEntryUpdates()
 		hasPending := false
@@ -614,7 +616,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if m.scanning || m.deleting || (m.inOverviewMode() && (m.overviewScanning || hasPending)) {
+		if m.scanning || m.deleting || (m.inOverviewMode() && (m.overviewScanning || hasPending)) || m.explain.loadingCount() > 0 {
 			m.spinner = (m.spinner + 1) % len(spinnerFrames)
 			if m.deleting && m.deleteCount != nil {
 				count := atomic.LoadInt64(m.deleteCount)
@@ -717,6 +719,10 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "Q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
+		if m.explain.panelOpen {
+			m.closeExplainPanel()
+			return m, nil
+		}
 		if m.showLargeFiles {
 			if m.largeFilter != "" {
 				m.resetLargeFilter()
@@ -757,7 +763,7 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.showLargeFiles {
 			if m.largeSelected < len(m.largeFiles)-1 {
 				m.largeSelected++
-				viewport := calculateViewport(m.height, true)
+				viewport := m.listViewport(true)
 				if m.largeSelected >= m.largeOffset+viewport {
 					m.largeOffset = m.largeSelected - viewport + 1
 				}
@@ -769,7 +775,7 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				next++
 			}
 			m.selected = next
-			viewport := calculateViewport(m.height, false)
+			viewport := m.listViewport(false)
 			if m.selected >= m.offset+viewport {
 				m.offset = m.selected - viewport + 1
 			}
@@ -965,6 +971,8 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = fmt.Sprintf("Showing %s in Finder...", selected.Name)
 			}
 		}
+	case "e", "E":
+		return m.handleExplainKey()
 	case "p", "P":
 		// Quick Look preview (single file only, no multi-select).
 		if m.showLargeFiles {

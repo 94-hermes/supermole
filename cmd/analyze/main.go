@@ -108,6 +108,7 @@ func resolveScanTarget(envPath string, args []string) (string, bool, error) {
 func runTUIMode(path string, isOverview bool) {
 	m := newModel(path, isOverview)
 	defer m.cancelBackgroundCacheWrites(nil)
+	defer m.shutdownExplain()
 	// Warm overview cache only when the user opens a specific directory.
 	// Overview mode already schedules the same measurements for the foreground UI;
 	// running the prefetcher there doubles the du/io workload on cold start.
@@ -154,6 +155,7 @@ func newModel(path string, isOverview bool) model {
 		largeMultiSelected:  make(map[string]bool),
 		liveSortMode:        liveSortFreezeOnMove,
 		snapshotRunner:      runLocalSnapshotCommand,
+		explain:             newExplainSession(defaultExplainBackend()),
 	}
 
 	if isOverview {
