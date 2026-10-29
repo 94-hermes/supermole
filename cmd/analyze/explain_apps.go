@@ -72,7 +72,7 @@ type explainOwnerKind int
 const (
 	explainOwnerUnknown   explainOwnerKind = iota // not in an app-keyed folder, or the inventory is incomplete
 	explainOwnerInstalled                         // an installed app matches
-	explainOwnerMissing                           // no installed app matches
+	explainOwnerMissing                           // no installed app carries the identifier
 	explainOwnerApple                             // an Apple identifier with no matching app
 )
 
@@ -128,7 +128,10 @@ func (idx *explainAppIndex) ownerOf(ctx context.Context, path string) explainOwn
 	if strings.HasPrefix(strings.ToLower(token), "com.apple.") {
 		return explainOwner{kind: explainOwnerApple, token: token}
 	}
-	if !idx.complete {
+	// Only an identifier proves absence. Plain folder names are often macOS
+	// services (AddressBook holds the Contacts app's data) or vendors, so a
+	// name with no matching app says nothing about whether it is still used.
+	if !idx.complete || !bundleIDPattern.MatchString(token) {
 		return explainOwner{}
 	}
 	return explainOwner{kind: explainOwnerMissing, token: token}

@@ -91,7 +91,6 @@ func TestBuildExplainPromptDescribesLocalFacts(t *testing.T) {
 		{name: "newest change", facts: explainFacts{newestChange: now.Add(-3 * 24 * time.Hour)}, want: "- Dernière modification : il y a 3 jours"},
 		{name: "installed owner", facts: explainFacts{owner: explainOwner{kind: explainOwnerInstalled, token: "com.docker.docker", app: installedApp{Name: "Docker"}}}, want: "app installée « Docker » (com.docker.docker)"},
 		{name: "missing owner id", facts: explainFacts{owner: explainOwner{kind: explainOwnerMissing, token: "com.docker.docker"}}, want: "Identifiant « com.docker.docker » : aucune app installée ne le porte"},
-		{name: "missing owner name", facts: explainFacts{owner: explainOwner{kind: explainOwnerMissing, token: "Code"}}, want: "Nom « Code » : aucune app installée de ce nom"},
 		{name: "apple owner", facts: explainFacts{owner: explainOwner{kind: explainOwnerApple, token: "com.apple.akd"}}, want: "Identifiant Apple « com.apple.akd » : composant de macOS"},
 		{name: "download with page", facts: explainFacts{downloadedFrom: []string{"https://a/x.dmg", "https://a/"}}, want: "- Téléchargé depuis : https://a/x.dmg (page : https://a/)"},
 		{name: "download alone", facts: explainFacts{downloadedFrom: []string{"https://a/x.dmg"}}, want: "- Téléchargé depuis : https://a/x.dmg\n"},

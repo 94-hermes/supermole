@@ -163,11 +163,7 @@ func describeExplainOwner(b *strings.Builder, owner explainOwner) {
 	case explainOwnerApple:
 		fmt.Fprintf(b, "- Identifiant Apple « %s » : composant de macOS ou d'une app Apple.\n", owner.token)
 	case explainOwnerMissing:
-		if bundleIDPattern.MatchString(owner.token) {
-			fmt.Fprintf(b, "- Identifiant « %s » : aucune app installée ne le porte (app supprimée, ou outil sans app).\n", owner.token)
-		} else {
-			fmt.Fprintf(b, "- Nom « %s » : aucune app installée de ce nom (app supprimée, ou outil sans app).\n", owner.token)
-		}
+		fmt.Fprintf(b, "- Identifiant « %s » : aucune app installée ne le porte (app supprimée, ou outil sans app).\n", owner.token)
 	case explainOwnerUnknown:
 	}
 }

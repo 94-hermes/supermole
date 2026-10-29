@@ -103,8 +103,13 @@ func TestExplainAppIndexOwnerOf(t *testing.T) {
 	if owner := index.ownerOf(ctx, "/Users/me/Library/Containers/com.docker.docker"); owner.kind != explainOwnerInstalled {
 		t.Fatalf("installed owner = %+v", owner)
 	}
-	if owner := index.ownerOf(ctx, "/Users/me/Library/Application Support/Slack"); owner.kind != explainOwnerMissing || owner.token != "Slack" {
+	if owner := index.ownerOf(ctx, "/Users/me/Library/Containers/com.tinyspeck.slackmacgap"); owner.kind != explainOwnerMissing || owner.token != "com.tinyspeck.slackmacgap" {
 		t.Fatalf("missing owner = %+v", owner)
+	}
+	// AddressBook is the Contacts app's data: a plain name with no matching app
+	// proves nothing, so it must not be reported as missing.
+	if owner := index.ownerOf(ctx, "/Users/me/Library/Application Support/AddressBook"); owner.kind != explainOwnerUnknown {
+		t.Fatalf("plain folder name = %+v, want no claim", owner)
 	}
 	if owner := index.ownerOf(ctx, "/Users/me/Library/Application Support/com.apple.akd"); owner.kind != explainOwnerApple {
 		t.Fatalf("apple owner = %+v", owner)
