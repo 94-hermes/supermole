@@ -272,9 +272,10 @@ type model struct {
 	explain             explainSession
 }
 
-// listViewport is the list row budget left once the explain panel takes its share.
+// listViewport is the list row budget left once the explain summary and
+// panel take their share.
 func (m model) listViewport(isLargeFiles bool) int {
-	return calculateViewport(m.height-m.explainPanelRows(), isLargeFiles)
+	return calculateViewport(m.height-m.explainSummaryRows()-m.explainPanelRows(), isLargeFiles)
 }
 
 func (m model) inOverviewMode() bool {

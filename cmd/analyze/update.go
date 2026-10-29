@@ -620,7 +620,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if m.scanning || m.deleting || (m.inOverviewMode() && (m.overviewScanning || hasPending)) || m.explain.loadingCount() > 0 {
+		if m.scanning || m.deleting || (m.inOverviewMode() && (m.overviewScanning || hasPending)) || m.explain.busy() {
 			m.spinner = (m.spinner + 1) % len(spinnerFrames)
 			if m.deleting && m.deleteCount != nil {
 				count := atomic.LoadInt64(m.deleteCount)
@@ -975,8 +975,10 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = fmt.Sprintf("Showing %s in Finder...", selected.Name)
 			}
 		}
-	case "e", "E":
+	case "e":
 		return m.handleExplainKey()
+	case "E":
+		return m.handleBatchExplainKey()
 	case "p", "P":
 		// Quick Look preview (single file only, no multi-select).
 		if m.showLargeFiles {

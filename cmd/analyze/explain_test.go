@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +28,8 @@ type recordingExplainBackend struct {
 	commands []explainCommand
 	reply    string
 	err      error
+	// batchVerdict, when set, answers every row id the prompt lists.
+	batchVerdict explainVerdict
 }
 
 func (r *recordingExplainBackend) backend() explainBackend {
@@ -41,6 +44,9 @@ func (r *recordingExplainBackend) backend() explainBackend {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 			r.commands = append(r.commands, command)
+			if r.batchVerdict != "" {
+				return []byte(claudeBatchReply(command.stdin, r.batchVerdict)), r.err
+			}
 			return []byte(r.reply), r.err
 		},
 	}
@@ -50,6 +56,17 @@ func (r *recordingExplainBackend) calls() []explainCommand {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]explainCommand(nil), r.commands...)
+}
+
+var promptItemIDPattern = regexp.MustCompile(`Élément id « (\d+) »`)
+
+// claudeBatchReply answers every row id the prompt lists with verdict.
+func claudeBatchReply(prompt string, verdict explainVerdict) string {
+	var items []string
+	for _, match := range promptItemIDPattern.FindAllStringSubmatch(prompt, -1) {
+		items = append(items, fmt.Sprintf(`{"id":%q,"verdict":%q,"what":"Un dossier.","if_deleted":"x","advice":"y","needs_exploration":false}`, match[1], verdict))
+	}
+	return `{"is_error":false,"structured_output":{"items":[` + strings.Join(items, ",") + `]}}`
 }
 
 func claudeReplyJSON(verdict explainVerdict, needsExploration bool) string {
@@ -269,24 +286,123 @@ func TestExplainKeyTypesIntoFilter(t *testing.T) {
 	}
 }
 
-func TestExplainLimitsConcurrentRequests(t *testing.T) {
-	m := newExplainTestModel(t, &recordingExplainBackend{reply: claudeReplyJSON(explainVerdictSafe, false)})
+// directoryRows replaces the model's rows with n one-byte folders.
+func directoryRows(m *model, n int) {
 	m.entries = nil
-	for i := range explainMaxConcurrent + 1 {
-		m.entries = append(m.entries, dirEntry{Name: fmt.Sprintf("d%d", i), Path: filepath.Join(m.path, fmt.Sprintf("d%d", i)), Size: 1, IsDir: true})
+	for i := range n {
+		name := fmt.Sprintf("d%02d", i)
+		m.entries = append(m.entries, dirEntry{Name: name, Path: filepath.Join(m.path, name), Size: 1, IsDir: true})
 	}
 	m.entriesAll = m.entries
+}
 
+func countStates(m model, state explainState) int {
+	count := 0
+	for _, entry := range m.explain.entries {
+		if entry.state == state {
+			count++
+		}
+	}
+	return count
+}
+
+func TestExplainQueuesBeyondConcurrentRequests(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{reply: claudeReplyJSON(explainVerdictSafe, false)})
+	directoryRows(&m, explainMaxConcurrent+1)
+
+	var cmds []tea.Cmd
 	for i := range m.entries {
 		m.selected = i
-		m, _ = pressExplainKey(t, m, explainKey)
+		var cmd tea.Cmd
+		m, cmd = pressExplainKey(t, m, explainKey)
+		cmds = append(cmds, cmd)
 	}
-	if loading := m.explain.loadingCount(); loading != explainMaxConcurrent {
-		t.Fatalf("loading = %d, want %d", loading, explainMaxConcurrent)
+	if len(m.explain.active) != explainMaxConcurrent || countStates(m, explainQueued) != 1 {
+		t.Fatalf("active = %d, queued = %d, want %d running and 1 waiting", len(m.explain.active), countStates(m, explainQueued), explainMaxConcurrent)
 	}
+	if cmds[explainMaxConcurrent] != nil {
+		t.Fatal("a queued request must not start a worker")
+	}
+
+	next, follow := m.Update(collectExplainResults(t, cmds[0])[0])
+	m = next.(model)
 	last := m.explain.entries[m.entries[explainMaxConcurrent].Path]
-	if last.state != explainFailed || !errors.Is(last.err, errExplainBusy) {
-		t.Fatalf("over-limit request = %+v, want a busy failure", last)
+	if last.state != explainLoading || len(m.explain.active) != explainMaxConcurrent || follow == nil {
+		t.Fatalf("waiting row = %+v, active = %d: a finished request must start the next one", last, len(m.explain.active))
+	}
+}
+
+func TestBatchExplainAsksOnlyVisibleRows(t *testing.T) {
+	recorder := &recordingExplainBackend{batchVerdict: explainVerdictSafe}
+	m := newExplainTestModel(t, recorder)
+	directoryRows(&m, 45)
+	visible := m.listViewport(false)
+
+	m, cmd := pressExplainKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	if got := countStates(m, explainLoading) + countStates(m, explainQueued); got != visible {
+		t.Fatalf("asked about %d rows, want the %d visible ones", got, visible)
+	}
+	if _, asked := m.explain.entries[m.entries[visible].Path]; asked {
+		t.Fatal("a row below the screen must not be asked about")
+	}
+	if len(m.explain.active) != min(explainMaxConcurrent, (visible+explainBatchSize-1)/explainBatchSize) {
+		t.Fatalf("active requests = %d", len(m.explain.active))
+	}
+
+	m = runAndApply(t, m, cmd)
+	for _, call := range recorder.calls() {
+		if n := len(promptItemIDPattern.FindAllString(call.stdin, -1)); n > explainBatchSize {
+			t.Fatalf("a request carried %d rows, more than %d", n, explainBatchSize)
+		}
+	}
+	if countStates(m, explainDone) != visible || m.explain.busy() {
+		t.Fatalf("done = %d, busy = %v, want all %d visible rows answered", countStates(m, explainDone), m.explain.busy(), visible)
+	}
+}
+
+func TestBatchExplainSkipsAnsweredRowsAndRetriesFailures(t *testing.T) {
+	recorder := &recordingExplainBackend{batchVerdict: explainVerdictSafe}
+	m := newExplainTestModel(t, recorder)
+	directoryRows(&m, 3)
+	answered, failed, fresh := m.entries[0].Path, m.entries[1].Path, m.entries[2].Path
+	m.explain.entries[answered] = explainEntry{state: explainDone, result: explanation{Verdict: explainVerdictKeep, What: "x"}}
+	m.explain.entries[failed] = explainEntry{state: explainFailed, err: errors.New("Not logged in")}
+
+	m, cmd := pressExplainKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	m = runAndApply(t, m, cmd)
+	prompt := recorder.calls()[0].stdin
+	if strings.Contains(prompt, answered) || !strings.Contains(prompt, displayPath(failed)) || !strings.Contains(prompt, displayPath(fresh)) {
+		t.Fatalf("batch prompt must skip the answered row and retry the failed one:\n%s", prompt)
+	}
+	if m.explain.entries[answered].result.Verdict != explainVerdictKeep {
+		t.Fatal("an answered row must keep its answer")
+	}
+	if _, cmd := pressExplainKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")}); cmd != nil {
+		t.Fatal("with every row answered, E must do nothing")
+	}
+}
+
+func TestSingleExplainGoesAheadOfQueuedBatches(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{batchVerdict: explainVerdictSafe})
+	directoryRows(&m, 90)
+	m, first := pressExplainKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	m.offset = m.listViewport(false)
+	m, _ = pressExplainKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	if len(m.explain.queue) == 0 {
+		t.Fatal("a second screen while three requests run must wait in the queue")
+	}
+
+	m.selected = len(m.entries) - 1
+	m, _ = pressExplainKey(t, m, explainKey)
+	single := m.entries[len(m.entries)-1].Path
+	if m.explain.queue[0].items[0].target.Path != single {
+		t.Fatalf("queue head = %s, want the row asked about with e", m.explain.queue[0].items[0].target.Path)
+	}
+
+	results := collectExplainResults(t, first)
+	next, _ := m.Update(results[0])
+	if got := next.(model).explain.entries[single]; got.state != explainLoading {
+		t.Fatalf("single row = %+v, want it started by the first free slot", got)
 	}
 }
 
@@ -545,5 +661,142 @@ func TestExplainUnreadableStoreTurnsSavingOff(t *testing.T) {
 	m = runAndApply(t, m, m.explain.loadStoreCommand())
 	if m.explain.store != nil || m.explain.storeErr == nil {
 		t.Fatalf("store = %v, storeErr = %v: an unreadable store must stop saving and say why", m.explain.store, m.explain.storeErr)
+	}
+}
+
+func answeredEntry(verdict explainVerdict) explainEntry {
+	return explainEntry{state: explainDone, result: explanation{Verdict: verdict, What: "x", Provider: "Claude"}}
+}
+
+// viewLine returns the stripped view line that mentions name.
+func viewLine(t *testing.T, m model, name string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(ansi.Strip(m.View()), "\n") {
+		if strings.Contains(line, name) {
+			return line
+		}
+	}
+	t.Fatalf("no line mentions %q:\n%s", name, ansi.Strip(m.View()))
+	return ""
+}
+
+func TestExplainRowMarksReplaceTheSeparator(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	directoryRows(&m, 5)
+	m.totalSize = 5
+	m.explain.entries[m.entries[0].Path] = answeredEntry(explainVerdictSafe)
+	m.explain.entries[m.entries[1].Path] = answeredEntry(explainVerdictKeep)
+	m.explain.entries[m.entries[2].Path] = explainEntry{state: explainLoading}
+	m.explain.entries[m.entries[3].Path] = explainEntry{state: explainFailed, err: errors.New("x")}
+
+	for name, mark := range map[string]string{"d00": "●", "d01": "●", "d02": "◌", "d03": "!", "d04": "|"} {
+		if line := viewLine(t, m, name); !strings.Contains(line, mark+"  📁 "+name) {
+			t.Fatalf("row %s = %q, want mark %q in the separator column", name, line, mark)
+		}
+	}
+	if !strings.Contains(m.View(), colorGreen+explainVerdictMark) || !strings.Contains(m.View(), colorRed+explainVerdictMark) {
+		t.Fatal("verdict marks must carry their verdict colour")
+	}
+
+	m.liveScanningPaths = map[string]bool{m.entries[0].Path: true}
+	if line := viewLine(t, m, "d00"); strings.Contains(line, "●") || !strings.ContainsAny(line, strings.Join(spinnerFrames, "")) {
+		t.Fatalf("row being scanned = %q, want the scan spinner over the mark", line)
+	}
+}
+
+func TestExplainRowMarksInTopFilesAndOverview(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	m.showLargeFiles = true
+	m.largeFiles = []fileEntry{{Name: "big.iso", Path: filepath.Join(m.path, "big.iso"), Size: 5 << 30}}
+	m.explain.entries[m.largeFiles[0].Path] = answeredEntry(explainVerdictSafe)
+	if line := viewLine(t, m, "big.iso"); !strings.Contains(line, "●  📄") {
+		t.Fatalf("top files row = %q", line)
+	}
+
+	overview := newExplainTestModel(t, &recordingExplainBackend{})
+	overview.path, overview.isOverview = "/", true
+	overview.entries = []dirEntry{{Name: "Applications", Path: "/Applications", Size: 21 << 30, IsDir: true}}
+	overview.totalSize = 21 << 30
+	overview.explain.entries["/Applications"] = answeredEntry(explainVerdictKeep)
+	if line := viewLine(t, overview, "Applications"); !strings.Contains(line, "●  Applications") {
+		t.Fatalf("overview row = %q", line)
+	}
+}
+
+func TestExplainSummaryCountsEachByteOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	library := filepath.Join(home, "Library")
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	m.path, m.isOverview = "/", true
+	m.entries = []dirEntry{
+		{Name: "Home", Path: home, Size: 30 << 30, IsDir: true},
+		{Name: "User Library", Path: library, Size: 58 << 30, IsDir: true},
+		{Name: "Xcode Simulators", Path: filepath.Join(library, "Developer", "CoreSimulator"), Size: 7 << 30, IsDir: true},
+		{Name: "Old Downloads", Path: filepath.Join(home, "Downloads"), Size: 2 << 30, IsDir: true},
+		{Name: "Applications", Path: "/Applications", Size: 21 << 30, IsDir: true},
+	}
+	m.explain.entries[home] = answeredEntry(explainVerdictKeep)
+	m.explain.entries[library] = answeredEntry(explainVerdictCaution)
+	m.explain.entries[m.entries[2].Path] = answeredEntry(explainVerdictSafe)
+	m.explain.entries[m.entries[3].Path] = answeredEntry(explainVerdictSafe)
+	m.explain.entries["/Applications"] = explainEntry{state: explainQueued}
+
+	summary := m.explainSummaryOf()
+	want := map[explainVerdict]int64{
+		explainVerdictSafe:    9 << 30,  // the simulators and old downloads
+		explainVerdictCaution: 51 << 30, // the Library minus the simulators inside it
+		explainVerdictKeep:    28 << 30, // Home holds Downloads but, as measured, not ~/Library
+	}
+	for verdict, size := range want {
+		if summary.size[verdict] != size {
+			t.Fatalf("%s = %s, want %s", verdict, humanizeBytes(summary.size[verdict]), humanizeBytes(size))
+		}
+	}
+	line := ansi.Strip(m.explainSummaryLine())
+	for _, part := range []string{"● Supprimable " + humanizeBytes(9<<30), "● Prudence " + humanizeBytes(51<<30), "● À garder " + humanizeBytes(28<<30), "◌ 1 en cours"} {
+		if !strings.Contains(line, part) {
+			t.Fatalf("summary %q lacks %q", line, part)
+		}
+	}
+	if strings.Index(line, "Supprimable") > strings.Index(line, "Prudence") {
+		t.Fatalf("summary %q must list the most reclaimable verdict first", line)
+	}
+}
+
+func TestExplainSummaryTakesRowsOnlyWhenShown(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	directoryRows(&m, 60)
+	m.totalSize = 60
+	m.height = 30 // below calculateViewport's 30-row cap, so every row counts
+	before := m.listViewport(false)
+	if m.explainSummaryLine() != "" || m.explainSummaryRows() != 0 {
+		t.Fatal("no summary before anything is asked")
+	}
+
+	m.selected = before - 1
+	m.explain.entries[m.entries[0].Path] = answeredEntry(explainVerdictSafe)
+	m.keepSelectionVisible()
+	if got := m.listViewport(false); got != before-m.explainSummaryRows() || m.explainSummaryRows() != 2 {
+		t.Fatalf("viewport = %d, want %d minus the summary", got, before)
+	}
+	if m.selected < m.offset || m.selected >= m.offset+m.listViewport(false) {
+		t.Fatal("the summary pushed the selection off screen")
+	}
+	if lines := strings.Count(m.View(), "\n"); lines > m.height {
+		t.Fatalf("view has %d lines for %d rows", lines, m.height)
+	}
+
+	m.width = 40
+	if width := ansi.StringWidth(m.explainSummaryLine()); width > m.width {
+		t.Fatalf("summary is %d columns wide on a %d-column terminal", width, m.width)
+	}
+}
+
+func TestExplainSummaryShowsStoreError(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	m.explain.storeErr = errors.New("disque plein")
+	if line := ansi.Strip(m.explainSummaryLine()); !strings.Contains(line, "mémoire : disque plein") {
+		t.Fatalf("summary %q must say the answers are not being saved", line)
 	}
 }

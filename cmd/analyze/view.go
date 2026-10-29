@@ -152,6 +152,7 @@ func (m model) View() string {
 		}
 	}
 
+	m.writeExplainSummary(&b)
 	if m.showLargeFiles {
 		if m.largeFiltering || m.largeFilter != "" {
 			cursor := ""
@@ -201,8 +202,8 @@ func (m model) View() string {
 				}
 				size := humanizeBytes(file.Size)
 				bar := coloredProgressBar(file.Size, maxLargeSize, 0)
-				fmt.Fprintf(&b, "%s%s %s%2d.%s %s  |  📄 %s%s%s  %s%10s%s\n",
-					entryPrefix, selectIcon, numColor, idx+1, colorReset, bar, nameColor, paddedPath, colorReset, sizeColor, size, colorReset)
+				fmt.Fprintf(&b, "%s%s %s%2d.%s %s  %s  📄 %s%s%s  %s%10s%s\n",
+					entryPrefix, selectIcon, numColor, idx+1, colorReset, bar, m.rowSeparator(file.Path), nameColor, paddedPath, colorReset, sizeColor, size, colorReset)
 			}
 		}
 	} else {
@@ -230,9 +231,7 @@ func (m model) View() string {
 				displayNum := 0
 				for idx, entry := range m.entries {
 					sizeVal := entry.Size
-					// Hide entries that have been scanned and are empty (standard dirs
-					// are never 0 bytes; only insight dirs in unused tool paths are).
-					if sizeVal == 0 && entry.State == scanComplete {
+					if isHiddenOverviewEntry(entry) {
 						continue
 					}
 					barValue := max(sizeVal, 0)
@@ -280,14 +279,15 @@ func (m model) View() string {
 						hintLabel = fmt.Sprintf("%s%s%s", colorGray, unusedTime, colorReset)
 					}
 
+					separator := m.rowSeparator(entry.Path)
 					if hintLabel == "" {
-						fmt.Fprintf(&b, "%s%s%2d.%s %s %s%s%s  |  %s %s%10s%s\n",
+						fmt.Fprintf(&b, "%s%s%2d.%s %s %s%s%s  %s  %s %s%10s%s\n",
 							entryPrefix, numColor, displayIndex, colorReset, bar, percentColor, percentStr, colorReset,
-							nameSegment, sizeColor, sizeText, colorReset)
+							separator, nameSegment, sizeColor, sizeText, colorReset)
 					} else {
-						fmt.Fprintf(&b, "%s%s%2d.%s %s %s%s%s  |  %s %s%10s%s  %s\n",
+						fmt.Fprintf(&b, "%s%s%2d.%s %s %s%s%s  %s  %s %s%10s%s  %s\n",
 							entryPrefix, numColor, displayIndex, colorReset, bar, percentColor, percentStr, colorReset,
-							nameSegment, sizeColor, sizeText, colorReset, hintLabel)
+							separator, nameSegment, sizeColor, sizeText, colorReset, hintLabel)
 					}
 				}
 			} else {
@@ -352,7 +352,7 @@ func (m model) View() string {
 					displayIndex := idx + 1
 
 					hintLabel := entryHintLabel(entry)
-					activityMarker := "|"
+					activityMarker := m.rowSeparator(entry.Path)
 					if entry.IsDir && m.liveScanningPaths != nil && m.liveScanningPaths[entry.Path] {
 						activityMarker = fmt.Sprintf("%s%s%s%s", colorCyan, colorBold, spinnerFrames[m.spinner], colorReset)
 					}
@@ -558,6 +558,12 @@ func sizeColorForPercent(percent float64) string {
 	default:
 		return colorGray
 	}
+}
+
+// isHiddenOverviewEntry is an overview row scanned as empty: standard folders
+// are never 0 bytes, only insight folders of tools that are not in use.
+func isHiddenOverviewEntry(entry dirEntry) bool {
+	return entry.Size == 0 && entry.State == scanComplete
 }
 
 func entryHintLabel(entry dirEntry) string {

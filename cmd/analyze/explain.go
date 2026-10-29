@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -17,20 +18,26 @@ import (
 )
 
 const (
-	// Each request is a full agent process; keep a burst of E presses cheap.
+	// Each request is a full agent process; more wait in the queue.
 	explainMaxConcurrent = 3
+	// Rows per triage request: an 8-row Opus reply measured 14 s, so three
+	// parallel requests of 10 cover a 30-row screen in about the time of one.
+	explainBatchSize     = 10
 	explainShutdownGrace = 2 * time.Second
 )
-
-var errExplainBusy = fmt.Errorf("déjà %d explications en cours, réessaie dans un instant", explainMaxConcurrent)
 
 type explainState int
 
 const (
-	explainLoading explainState = iota
+	explainQueued explainState = iota
+	explainLoading
 	explainDone
 	explainFailed
 )
+
+func (state explainState) pending() bool {
+	return state == explainQueued || state == explainLoading
+}
 
 type explainEntry struct {
 	state      explainState
@@ -56,6 +63,8 @@ type explainSession struct {
 	entries   map[string]explainEntry
 	nextID    int64
 	panelOpen bool
+	queue     []explainJob   // waiting for one of the explainMaxConcurrent slots
+	active    map[int64]bool // request ids running on a worker
 
 	store       *explainStore // nil: answers last for this run only
 	storeLoaded bool          // nothing is saved before the remembered answers are in
@@ -73,18 +82,14 @@ func newExplainSession(backend explainBackend) explainSession {
 		backend:  backend,
 		sources:  defaultExplainSources(),
 		entries:  make(map[string]explainEntry),
+		active:   make(map[int64]bool),
 		store:    defaultExplainStore(),
 	}
 }
 
-func (s explainSession) loadingCount() int {
-	count := 0
-	for _, entry := range s.entries {
-		if entry.state == explainLoading {
-			count++
-		}
-	}
-	return count
+// busy keeps the loading animation running while anything is queued or asked.
+func (s explainSession) busy() bool {
+	return len(s.active) > 0 || len(s.queue) > 0
 }
 
 var errExplainItemMissing = errors.New("pas de réponse pour cet élément")
@@ -136,18 +141,11 @@ func (job explainJob) timeout() time.Duration {
 	}
 }
 
-func (m model) explainTarget() (explainTarget, bool) {
-	if m.showLargeFiles {
-		if m.largeSelected < 0 || m.largeSelected >= len(m.largeFiles) {
-			return explainTarget{}, false
-		}
-		file := m.largeFiles[m.largeSelected]
-		return explainTarget{Label: file.Name, Path: file.Path, Size: file.Size}, true
-	}
-	if m.selected < 0 || m.selected >= len(m.entries) {
-		return explainTarget{}, false
-	}
-	entry := m.entries[m.selected]
+func explainTargetForFile(file fileEntry) explainTarget {
+	return explainTarget{Label: file.Name, Path: file.Path, Size: file.Size}
+}
+
+func explainTargetForEntry(entry dirEntry) explainTarget {
 	return explainTarget{
 		Label:      entry.Name,
 		Path:       entry.Path,
@@ -157,7 +155,44 @@ func (m model) explainTarget() (explainTarget, bool) {
 		LastAccess: entry.LastAccess,
 		Cleanable:  entry.IsDir && isCleanableDir(entry.Path),
 		AppBundle:  isAppBundleEntry(entry),
-	}, true
+	}
+}
+
+func (m model) explainTarget() (explainTarget, bool) {
+	if m.showLargeFiles {
+		if m.largeSelected < 0 || m.largeSelected >= len(m.largeFiles) {
+			return explainTarget{}, false
+		}
+		return explainTargetForFile(m.largeFiles[m.largeSelected]), true
+	}
+	if m.selected < 0 || m.selected >= len(m.entries) {
+		return explainTarget{}, false
+	}
+	return explainTargetForEntry(m.entries[m.selected]), true
+}
+
+// visibleExplainTargets are the rows on screen, in the order shown.
+func (m model) visibleExplainTargets() []explainTarget {
+	var targets []explainTarget
+	switch {
+	case m.showLargeFiles:
+		start := max(m.largeOffset, 0)
+		for _, file := range m.largeFiles[start:min(start+m.listViewport(true), len(m.largeFiles))] {
+			targets = append(targets, explainTargetForFile(file))
+		}
+	case m.inOverviewMode():
+		for _, entry := range m.entries {
+			if !isHiddenOverviewEntry(entry) {
+				targets = append(targets, explainTargetForEntry(entry))
+			}
+		}
+	default:
+		start := max(m.offset, 0)
+		for _, entry := range m.entries[start:min(start+m.listViewport(false), len(m.entries))] {
+			targets = append(targets, explainTargetForEntry(entry))
+		}
+	}
+	return targets
 }
 
 // handleExplainKey opens the panel on the selected row, then walks it
@@ -177,7 +212,7 @@ func (m model) handleExplainKey() (tea.Model, tea.Cmd) {
 	switch {
 	case !known:
 		return m.startExplain(target, explainQuick)
-	case !wasOpen, entry.state == explainLoading:
+	case !wasOpen, entry.state.pending():
 		return m, nil
 	case entry.state == explainFailed:
 		return m.startExplain(target, entry.mode)
@@ -206,22 +241,93 @@ func (m *model) keepSelectionVisible() {
 	}
 }
 
-func (m model) startExplain(target explainTarget, mode explainMode) (tea.Model, tea.Cmd) {
-	if m.explain.ctx == nil {
-		panelOpen := m.explain.panelOpen
-		m.explain = newExplainSession(defaultExplainBackend())
-		m.explain.panelOpen = panelOpen
+// handleBatchExplainKey asks about every row on screen that has no answer
+// yet, or whose last attempt failed, in requests of explainBatchSize rows.
+func (m model) handleBatchExplainKey() (tea.Model, tea.Cmd) {
+	var pending []explainJobItem
+	for _, target := range m.visibleExplainTargets() {
+		if entry, known := m.explain.entries[target.Path]; known && entry.state != explainFailed {
+			continue
+		}
+		pending = append(pending, m.explainJobItem(target))
 	}
-	if m.explain.loadingCount() >= explainMaxConcurrent {
-		m.explain.entries[target.Path] = explainEntry{state: explainFailed, mode: mode, err: errExplainBusy}
+	if len(pending) == 0 {
 		return m, nil
 	}
+	m.ensureExplainSession()
+	for chunk := range slices.Chunk(pending, explainBatchSize) {
+		m.enqueueExplain(explainQuick, chunk, false)
+	}
+	cmd := m.dispatchExplain()
+	m.keepSelectionVisible()
+	return m, cmd
+}
 
+// startExplain asks about one row. It goes ahead of queued triage batches,
+// since the user is looking at that row.
+func (m model) startExplain(target explainTarget, mode explainMode) (tea.Model, tea.Cmd) {
+	m.ensureExplainSession()
+	m.enqueueExplain(mode, []explainJobItem{m.explainJobItem(target)}, true)
+	cmd := m.dispatchExplain()
+	m.keepSelectionVisible()
+	return m, cmd
+}
+
+// ensureExplainSession covers a model built without newModel.
+func (m *model) ensureExplainSession() {
+	if m.explain.ctx != nil {
+		return
+	}
+	panelOpen := m.explain.panelOpen
+	m.explain = newExplainSession(defaultExplainBackend())
+	m.explain.panelOpen = panelOpen
+}
+
+func (m *model) enqueueExplain(mode explainMode, items []explainJobItem, urgent bool) {
 	m.explain.nextID++
-	job := explainJob{requestID: m.explain.nextID, mode: mode, items: []explainJobItem{m.explainJobItem(target)}}
-	m.explain.entries[target.Path] = explainEntry{state: explainLoading, mode: mode, requestID: job.requestID, startedAt: time.Now()}
-	m.explain.inFlight.Add(1)
-	return m, tea.Batch(m.explain.command(job), m.startTick())
+	job := explainJob{requestID: m.explain.nextID, mode: mode, items: items}
+	for _, item := range items {
+		m.explain.entries[item.target.Path] = explainEntry{state: explainQueued, mode: mode, requestID: job.requestID}
+	}
+	if urgent {
+		m.explain.queue = slices.Insert(m.explain.queue, 0, job)
+	} else {
+		m.explain.queue = append(m.explain.queue, job)
+	}
+}
+
+// dispatchExplain starts queued requests while slots are free. Rows forgotten
+// while they waited (a delete) are dropped from their request first.
+func (m *model) dispatchExplain() tea.Cmd {
+	var cmds []tea.Cmd
+	for len(m.explain.queue) > 0 && len(m.explain.active) < explainMaxConcurrent {
+		job := m.explain.queue[0]
+		m.explain.queue = m.explain.queue[1:]
+
+		now := time.Now()
+		var items []explainJobItem
+		for _, item := range job.items {
+			entry, ok := m.explain.entries[item.target.Path]
+			if !ok || entry.state != explainQueued || entry.requestID != job.requestID {
+				continue
+			}
+			entry.state = explainLoading
+			entry.startedAt = now
+			m.explain.entries[item.target.Path] = entry
+			items = append(items, item)
+		}
+		if len(items) == 0 {
+			continue
+		}
+		job.items = items
+		m.explain.active[job.requestID] = true
+		m.explain.inFlight.Add(1)
+		cmds = append(cmds, m.explain.command(job))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(append(cmds, m.startTick())...)
 }
 
 // explainJobItem copies what a worker needs from the scan cache, which
@@ -313,6 +419,7 @@ func explainWorkDir(job explainJob, scratch string) string {
 }
 
 func (m model) handleExplainResult(msg explainResultMsg) (tea.Model, tea.Cmd) {
+	delete(m.explain.active, msg.requestID)
 	answered := false
 	for path, outcome := range msg.outcomes {
 		entry, ok := m.explain.entries[path]
@@ -335,10 +442,12 @@ func (m model) handleExplainResult(msg explainResultMsg) (tea.Model, tea.Cmd) {
 		}
 		m.explain.entries[path] = entry
 	}
-	if !answered {
-		return m, nil
+	m.keepSelectionVisible()
+	cmd := m.dispatchExplain()
+	if answered {
+		cmd = tea.Batch(cmd, m.persistExplanations())
 	}
-	return m, m.persistExplanations()
+	return m, cmd
 }
 
 // loadStoreCommand reads the remembered answers off the event loop.
