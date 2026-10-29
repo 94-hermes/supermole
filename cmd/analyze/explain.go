@@ -33,12 +33,15 @@ const (
 )
 
 type explainEntry struct {
-	state     explainState
-	mode      explainMode
-	requestID int64
-	startedAt time.Time
-	result    explanation
-	err       error
+	state      explainState
+	mode       explainMode
+	requestID  int64
+	startedAt  time.Time
+	result     explanation
+	err        error
+	answeredAt time.Time
+	stamp      explainStamp // the target when it was answered
+	fromStore  bool         // answered in an earlier analyzer run
 }
 
 // explainSession holds the panel and the per-path answers for one analyzer
@@ -53,6 +56,12 @@ type explainSession struct {
 	entries   map[string]explainEntry
 	nextID    int64
 	panelOpen bool
+
+	store       *explainStore // nil: answers last for this run only
+	storeLoaded bool          // nothing is saved before the remembered answers are in
+	storeDirty  bool          // an answer arrived before loading finished
+	generation  int64
+	storeErr    error
 }
 
 func newExplainSession(backend explainBackend) explainSession {
@@ -64,6 +73,7 @@ func newExplainSession(backend explainBackend) explainSession {
 		backend:  backend,
 		sources:  defaultExplainSources(),
 		entries:  make(map[string]explainEntry),
+		store:    defaultExplainStore(),
 	}
 }
 
@@ -82,7 +92,17 @@ var errExplainItemMissing = errors.New("pas de réponse pour cet élément")
 // explainOutcome is one row's share of a finished request.
 type explainOutcome struct {
 	result explanation
+	stamp  explainStamp
 	err    error
+}
+
+type explainStoreLoadedMsg struct {
+	answers map[string]storedExplanation
+	err     error
+}
+
+type explainStoreSavedMsg struct {
+	err error
 }
 
 type explainResultMsg struct {
@@ -273,7 +293,7 @@ func runExplainJob(ctx context.Context, backend explainBackend, sources explainS
 		}
 		result.Provider = provider
 		result.Explored = job.mode == explainDeep
-		outcomes[item.target.Path] = explainOutcome{result: result}
+		outcomes[item.target.Path] = explainOutcome{result: result, stamp: promptItems[i].facts.stamp}
 	}
 	return outcomes
 }
@@ -293,6 +313,7 @@ func explainWorkDir(job explainJob, scratch string) string {
 }
 
 func (m model) handleExplainResult(msg explainResultMsg) (tea.Model, tea.Cmd) {
+	answered := false
 	for path, outcome := range msg.outcomes {
 		entry, ok := m.explain.entries[path]
 		if !ok || entry.state != explainLoading || entry.requestID != msg.requestID {
@@ -302,13 +323,106 @@ func (m model) handleExplainResult(msg explainResultMsg) (tea.Model, tea.Cmd) {
 			entry.state = explainFailed
 			entry.err = outcome.err
 		} else {
-			entry.state = explainDone
-			entry.result = outcome.result
-			entry.err = nil
+			entry = explainEntry{
+				state:      explainDone,
+				mode:       entry.mode,
+				requestID:  entry.requestID,
+				result:     outcome.result,
+				answeredAt: time.Now(),
+				stamp:      outcome.stamp,
+			}
+			answered = true
 		}
 		m.explain.entries[path] = entry
 	}
+	if !answered {
+		return m, nil
+	}
+	return m, m.persistExplanations()
+}
+
+// loadStoreCommand reads the remembered answers off the event loop.
+func (s explainSession) loadStoreCommand() tea.Cmd {
+	if s.store == nil {
+		return nil
+	}
+	store := s.store
+	return func() tea.Msg {
+		answers, err := store.load(time.Now())
+		return explainStoreLoadedMsg{answers: answers, err: err}
+	}
+}
+
+// handleExplainStoreLoaded adds remembered answers under any given this run.
+// An unreadable store is started over; one that cannot be read at all is left
+// alone and this run does not save.
+func (m model) handleExplainStoreLoaded(msg explainStoreLoadedMsg) (tea.Model, tea.Cmd) {
+	m.explain.storeErr = msg.err
+	if msg.err != nil && !errors.Is(msg.err, errExplainStoreCorrupt) {
+		m.explain.store = nil
+		return m, nil
+	}
+	for path, answer := range msg.answers {
+		if _, known := m.explain.entries[path]; !known {
+			m.explain.entries[path] = answer.entry()
+		}
+	}
+	m.explain.storeLoaded = true
+	m.keepSelectionVisible()
+	if !m.explain.storeDirty {
+		return m, nil
+	}
+	m.explain.storeDirty = false
+	return m, m.persistExplanations()
+}
+
+func (m model) handleExplainStoreSaved(msg explainStoreSavedMsg) (tea.Model, tea.Cmd) {
+	m.explain.storeErr = msg.err
 	return m, nil
+}
+
+// persistExplanations saves a snapshot of every answer whose target existed
+// when it was given: a target that was already gone cannot be checked on the
+// next run. The write runs on a worker; the snapshot is taken here, on the
+// event loop.
+func (m *model) persistExplanations() tea.Cmd {
+	if m.explain.store == nil {
+		return nil
+	}
+	if !m.explain.storeLoaded {
+		m.explain.storeDirty = true
+		return nil
+	}
+	snapshot := make(map[string]storedExplanation, len(m.explain.entries))
+	for path, entry := range m.explain.entries {
+		if entry.state == explainDone && entry.stamp.Exists {
+			snapshot[path] = storedFromEntry(entry)
+		}
+	}
+	m.explain.generation++
+	store, generation := m.explain.store, m.explain.generation
+	return func() tea.Msg {
+		return explainStoreSavedMsg{err: store.save(snapshot, generation)}
+	}
+}
+
+// forgetExplanations drops the answers about deleted paths and everything
+// inside them, so a new item at the same path is never described by them.
+func (m *model) forgetExplanations(removedPaths []string) tea.Cmd {
+	forgotten := false
+	for path := range m.explain.entries {
+		for _, removed := range removedPaths {
+			if pathIsWithin(path, removed) {
+				delete(m.explain.entries, path)
+				forgotten = true
+				break
+			}
+		}
+	}
+	if !forgotten {
+		return nil
+	}
+	return m.persistExplanations()
 }
 
 // shutdownExplain stops running agents when the analyzer exits, waiting a

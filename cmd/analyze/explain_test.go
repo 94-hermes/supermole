@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -69,6 +71,8 @@ func newExplainTestModel(t *testing.T, recorder *recordingExplainBackend) model 
 	m.explain = newExplainSession(recorder.backend())
 	// No app inventory or Spotlight lookups: UI tests stay hermetic.
 	m.explain.sources = explainSources{}
+	// Never the real ~/.cache: each test remembers answers in its own store.
+	m.explain.store = newExplainStore(filepath.Join(t.TempDir(), "answers.json"))
 	// Cancel only: requests a test dispatches but never runs would hold
 	// shutdownExplain for its whole grace period.
 	t.Cleanup(m.explain.cancel)
@@ -412,5 +416,134 @@ func TestShutdownExplainCancelsRunningAgents(t *testing.T) {
 	}
 	if got := <-results; len(got) != 1 || !errors.Is(got[0].outcomes[m.entries[0].Path].err, context.Canceled) {
 		t.Fatalf("results = %+v, want one canceled request", got)
+	}
+}
+
+// runAndApply runs cmd, feeds every message it produces back into m and keeps
+// going with whatever those updates return. UI ticks are skipped.
+func runAndApply(t *testing.T, m model, cmd tea.Cmd) model {
+	t.Helper()
+	queue := []tea.Cmd{cmd}
+	for len(queue) > 0 {
+		next := queue[0]
+		queue = queue[1:]
+		if next == nil {
+			continue
+		}
+		switch msg := next().(type) {
+		case tea.BatchMsg:
+			queue = append(queue, msg...)
+		case tickMsg:
+		default:
+			updated, follow := m.Update(msg)
+			m = updated.(model)
+			queue = append(queue, follow)
+		}
+	}
+	return m
+}
+
+// materializeEntries creates the test model's rows on disk, which persisted
+// answers need so they can be checked on the next run.
+func materializeEntries(t *testing.T, m model) {
+	t.Helper()
+	for _, entry := range m.entries {
+		var err error
+		if entry.IsDir {
+			err = os.MkdirAll(entry.Path, 0o755)
+		} else {
+			err = os.WriteFile(entry.Path, nil, 0o600)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestExplainAnswerIsSavedOnlyAfterStoreLoads(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{reply: claudeReplyJSON(explainVerdictSafe, false)})
+	materializeEntries(t, m)
+	target := m.entries[0].Path
+
+	m, cmd := pressExplainKey(t, m, explainKey)
+	m = runAndApply(t, m, cmd)
+	if _, err := os.Stat(m.explain.store.path); !errors.Is(err, fs.ErrNotExist) || !m.explain.storeDirty {
+		t.Fatalf("stat err = %v, dirty = %v: nothing may be written before the remembered answers are in", err, m.explain.storeDirty)
+	}
+
+	m = runAndApply(t, m, m.explain.loadStoreCommand())
+	saved, err := m.explain.store.load(time.Now())
+	if err != nil || saved[target].Verdict != explainVerdictSafe || m.explain.storeErr != nil {
+		t.Fatalf("saved = %+v, err = %v, storeErr = %v", saved, err, m.explain.storeErr)
+	}
+}
+
+func TestExplainRememberedAnswersComeBackWithoutAsking(t *testing.T) {
+	recorder := &recordingExplainBackend{reply: claudeReplyJSON(explainVerdictSafe, false)}
+	m := newExplainTestModel(t, recorder)
+	materializeEntries(t, m)
+	target := m.entries[0].Path
+	answer := storedAnswer(true, modTimeOf(t, target), time.Now().Add(-24*time.Hour))
+	answer.Verdict = explainVerdictKeep
+	if err := m.explain.store.save(map[string]storedExplanation{target: answer}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	m = runAndApply(t, m, m.explain.loadStoreCommand())
+	entry := m.explain.entries[target]
+	if entry.state != explainDone || !entry.fromStore || entry.result.Verdict != explainVerdictKeep {
+		t.Fatalf("remembered entry = %+v", entry)
+	}
+	m, cmd := pressExplainKey(t, m, explainKey)
+	if cmd != nil || !m.explain.panelOpen || len(recorder.calls()) != 0 {
+		t.Fatal("a remembered answer must open without asking the model again")
+	}
+}
+
+func TestExplainAnswerFromThisRunWinsOverRemembered(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{reply: claudeReplyJSON(explainVerdictSafe, false)})
+	materializeEntries(t, m)
+	target := m.entries[0].Path
+	if err := m.explain.store.save(map[string]storedExplanation{target: storedAnswer(true, modTimeOf(t, target), time.Now().Add(-time.Hour))}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	m, cmd := pressExplainKey(t, m, explainKey)
+	m = runAndApply(t, m, cmd)
+	m = runAndApply(t, m, m.explain.loadStoreCommand())
+	if entry := m.explain.entries[target]; entry.fromStore {
+		t.Fatalf("a remembered answer replaced this run's: %+v", entry)
+	}
+}
+
+func TestExplainForgetsDeletedPaths(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	m.explain.storeLoaded = true
+	devices := m.entries[0].Path
+	done := explainEntry{state: explainDone, result: explanation{Verdict: explainVerdictSafe, What: "x"}}
+	m.explain.entries = map[string]explainEntry{
+		devices:                            done,
+		filepath.Join(devices, "UUID"):     done,
+		devices + "-sibling":               done,
+		filepath.Join(m.path, "untouched"): done,
+	}
+
+	next, _ := m.Update(deleteProgressMsg{done: true, path: devices, count: 1})
+	got := next.(model).explain.entries
+	if _, ok := got[devices]; ok || len(got) != 2 {
+		t.Fatalf("entries after delete = %v, want the folder and its contents forgotten", got)
+	}
+	if _, ok := got[devices+"-sibling"]; !ok {
+		t.Fatal("a sibling sharing the name prefix must stay")
+	}
+}
+
+func TestExplainUnreadableStoreTurnsSavingOff(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	m.explain.store = newExplainStore(t.TempDir()) // a directory cannot be read as a file
+
+	m = runAndApply(t, m, m.explain.loadStoreCommand())
+	if m.explain.store != nil || m.explain.storeErr == nil {
+		t.Fatalf("store = %v, storeErr = %v: an unreadable store must stop saving and say why", m.explain.store, m.explain.storeErr)
 	}
 }

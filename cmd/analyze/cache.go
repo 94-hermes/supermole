@@ -244,16 +244,21 @@ func persistOverviewSnapshotLocked() error {
 	if err != nil {
 		return err
 	}
-	// A uniquely named temp file, so two analyzers running at once cannot land
-	// in each other's half-written store.
-	tmp, err := os.CreateTemp(filepath.Dir(storePath), overviewCacheFile+".*.tmp")
+	// The store has always been world-readable.
+	return writeFileAtomically(storePath, data, 0644)
+}
+
+// writeFileAtomically replaces path with data in one rename. The uniquely
+// named temp file means two analyzers running at once cannot land in each
+// other's half-written file.
+func writeFileAtomically(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
 	tmpPath := tmp.Name()
-	// Chmod through the handle, not the path: CreateTemp opens at 0600 and the
-	// store has always been world-readable.
-	if err := tmp.Chmod(0644); err != nil {
+	// Chmod through the handle, not the path: CreateTemp always opens at 0600.
+	if err := tmp.Chmod(perm); err != nil {
 		tmp.Close() //nolint:errcheck
 		_ = os.Remove(tmpPath)
 		return err
@@ -267,7 +272,7 @@ func persistOverviewSnapshotLocked() error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := os.Rename(tmpPath, storePath); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}

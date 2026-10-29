@@ -354,7 +354,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			cmd = tea.Batch(m.scanCmd(m.path), m.startTick())
 		}
-		return m, cmd
+		return m, tea.Batch(cmd, m.explain.loadStoreCommand())
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	case tea.WindowSizeMsg:
@@ -420,7 +420,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentPath != nil {
 					m.currentPath.Store("")
 				}
-				cmd := tea.Batch(m.scanCmd(m.path), m.startTick())
+				cmd := tea.Batch(m.scanCmd(m.path), m.startTick(), m.forgetExplanations(removedPaths))
 				return m, cmd
 			}
 			if msg.err != nil {
@@ -605,6 +605,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case explainResultMsg:
 		return m.handleExplainResult(msg)
+	case explainStoreLoadedMsg:
+		return m.handleExplainStoreLoaded(msg)
+	case explainStoreSavedMsg:
+		return m.handleExplainStoreSaved(msg)
 	case tickMsg:
 		m.flushLiveEntryUpdates()
 		hasPending := false
