@@ -800,3 +800,32 @@ func TestExplainSummaryShowsStoreError(t *testing.T) {
 		t.Fatalf("summary %q must say the answers are not being saved", line)
 	}
 }
+
+func TestExplainPanelSaysWhatTheVerdictRestsOn(t *testing.T) {
+	m := newExplainTestModel(t, &recordingExplainBackend{})
+	target := m.entries[0].Path
+	m.explain.panelOpen = true
+	answeredAt := time.Date(2026, 10, 29, 9, 0, 0, 0, time.Local)
+	tests := []struct {
+		name  string
+		entry explainEntry
+		want  string
+		not   string
+	}{
+		{name: "quick", entry: answeredEntry(explainVerdictSafe), want: "● SUPPRIMABLE · sans ouvrir les fichiers", not: "réponse du"},
+		{name: "explored", entry: explainEntry{state: explainDone, result: explanation{Verdict: explainVerdictKeep, What: "x", Explored: true}}, want: "● À GARDER · après lecture des fichiers"},
+		{name: "remembered", entry: explainEntry{state: explainDone, result: explanation{Verdict: explainVerdictCaution, What: "x"}, fromStore: true, answeredAt: answeredAt}, want: "● PRUDENCE · sans ouvrir les fichiers · réponse du 29/10"},
+		{name: "queued", entry: explainEntry{state: explainQueued}, want: "En attente : d'autres explications passent avant."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.explain.entries[target] = tt.entry
+			var panel strings.Builder
+			m.writeExplainPanel(&panel)
+			got := ansi.Strip(panel.String())
+			if !strings.Contains(got, tt.want) || (tt.not != "" && strings.Contains(got, tt.not)) {
+				t.Fatalf("panel lacks %q (or shows %q):\n%s", tt.want, tt.not, got)
+			}
+		})
+	}
+}

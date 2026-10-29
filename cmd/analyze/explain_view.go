@@ -35,6 +35,17 @@ const (
 	explainSummaryJoin   = "  ·  "
 )
 
+// explainAnswerDateLayout is day/month, as French readers write it.
+const explainAnswerDateLayout = "02/01"
+
+// explainSourceLabel says what the verdict rests on.
+func explainSourceLabel(result explanation) string {
+	if result.Explored {
+		return "après lecture des fichiers"
+	}
+	return "sans ouvrir les fichiers"
+}
+
 type explainVerdictStyle struct {
 	label   string // panel verdict line
 	summary string // summary line
@@ -136,9 +147,9 @@ func (m model) explainPanelContent() explainPanelContent {
 		result := entry.result
 		content.title += " · " + result.Provider
 		style := explainStyleOf(result.Verdict)
-		verdict := explainParagraph{text: explainVerdictMark + " " + style.label, color: style.color}
-		if result.Explored {
-			verdict.text += " · après exploration"
+		verdict := explainParagraph{text: explainVerdictMark + " " + style.label + " · " + explainSourceLabel(result), color: style.color}
+		if entry.fromStore {
+			verdict.text += " · réponse du " + entry.answeredAt.Format(explainAnswerDateLayout)
 		}
 		content.paragraphs = []explainParagraph{
 			verdict,
