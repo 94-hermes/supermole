@@ -25,16 +25,21 @@ func TestBuildExplainPromptDescribesTargetWithoutFileContents(t *testing.T) {
 	}
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 
-	prompt := buildExplainPrompt(explainTarget{
-		Label:      "Xcode Simulators",
-		Path:       target,
-		Size:       7 << 30,
-		IsDir:      true,
-		LastAccess: now.Add(-120 * 24 * time.Hour),
-		Cleanable:  true,
-	}, readExplainContents(target), explainQuick, now)
+	prompt := buildExplainPrompt([]explainPromptItem{{
+		id: "1",
+		target: explainTarget{
+			Label:      "Xcode Simulators",
+			Path:       target,
+			Size:       7 << 30,
+			IsDir:      true,
+			LastAccess: now.Add(-120 * 24 * time.Hour),
+			Cleanable:  true,
+		},
+		facts: explainFacts{contents: readExplainContents(target)},
+	}}, explainQuick, now)
 
 	for _, want := range []string{
+		"Élément id « 1 »",
 		"Nom affiché par l'outil : Xcode Simulators",
 		"Chemin : ~/Library/Developer/CoreSimulator",
 		"Type : dossier",
@@ -55,7 +60,7 @@ func TestBuildExplainPromptDescribesTargetWithoutFileContents(t *testing.T) {
 }
 
 func TestBuildExplainPromptDeepModeAllowsReadOnlyLook(t *testing.T) {
-	prompt := buildExplainPrompt(explainTarget{Label: "cache.db", Path: "/tmp/cache.db", Size: -1}, explainContents{}, explainDeep, time.Now())
+	prompt := buildExplainPrompt([]explainPromptItem{{id: "1", target: explainTarget{Label: "cache.db", Path: "/tmp/cache.db", Size: -1}}}, explainDeep, time.Now())
 	if !strings.Contains(prompt, "lecture seule") || !strings.Contains(prompt, "ne supprime rien") {
 		t.Fatalf("deep prompt must allow reading only:\n%s", prompt)
 	}
@@ -66,9 +71,33 @@ func TestBuildExplainPromptDeepModeAllowsReadOnlyLook(t *testing.T) {
 
 func TestBuildExplainPromptListsCachedSizes(t *testing.T) {
 	contents := cachedExplainContents([]dirEntry{{Name: "Devices", Size: 3 << 30, IsDir: true}})
-	prompt := buildExplainPrompt(explainTarget{Path: "/x", IsDir: true}, contents, explainQuick, time.Now())
+	prompt := buildExplainPrompt([]explainPromptItem{{id: "1", target: explainTarget{Path: "/x", IsDir: true}, facts: explainFacts{contents: contents}}}, explainQuick, time.Now())
 	if !strings.Contains(prompt, "- Devices/ : "+humanizeBytes(3<<30)) {
 		t.Fatalf("cached child size missing:\n%s", prompt)
+	}
+}
+
+func TestBuildExplainPromptNumbersBatchItems(t *testing.T) {
+	prompt := buildExplainPrompt([]explainPromptItem{
+		{id: "1", target: explainTarget{Path: "/x/a", Size: -1}},
+		{id: "2", target: explainTarget{Path: "/x/b", Size: -1}},
+	}, explainQuick, time.Now())
+	for _, want := range []string{"2 éléments à expliquer", "Élément id « 1 »", "Chemin : /x/a", "Élément id « 2 »", "Chemin : /x/b"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("batch prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestExplainAgeLabel(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		age  time.Duration
+		want string
+	}{{time.Hour, "aujourd'hui"}, {30 * time.Hour, "il y a 1 jour"}, {10 * 24 * time.Hour, "il y a 10 jours"}} {
+		if got := explainAgeLabel(now.Add(-tt.age), now); got != tt.want {
+			t.Fatalf("explainAgeLabel(-%s) = %q, want %q", tt.age, got, tt.want)
+		}
 	}
 }
 

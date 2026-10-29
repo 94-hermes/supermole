@@ -23,9 +23,10 @@ const (
 )
 
 const explainSystemPrompt = `Tu aides une personne qui ne s'y connaît pas en informatique à faire le tri sur son Mac (macOS).
-Un outil d'analyse de disque te montre un fichier ou un dossier. Explique-le en français, en tutoyant, avec des mots simples, comme à un enfant de 10 ans.
+Un outil d'analyse de disque te montre un ou plusieurs fichiers ou dossiers, chacun avec un id. Explique chacun en français, en tutoyant, avec des mots simples, comme à un enfant de 10 ans.
 
 Règles :
+- Réponds avec un item par élément, en reprenant exactement son id.
 - Chaque champ texte fait au plus 150 caractères, en une ou deux phrases courtes. Pas de markdown, pas de liste.
 - verdict : "safe" si on peut le supprimer sans rien perdre d'important (cache qui se recrée tout seul, vieil installeur, copie) ; "caution" si on peut le supprimer mais en perdant quelque chose ou avec une précaution (dis laquelle) ; "keep" s'il ne faut pas le supprimer (système, app utilisée, données personnelles uniques) ; "unknown" si tu ne peux pas savoir.
 - Juge comme si la Corbeille était vidée juste après.
@@ -56,6 +57,19 @@ type explainContents struct {
 	Children  []explainChild
 	Truncated bool
 	Note      string // why the listing is missing or incomplete
+}
+
+// explainFacts is what Mole knows locally about a row, gathered off the event
+// loop. It never includes file contents.
+type explainFacts struct {
+	contents explainContents
+}
+
+// explainPromptItem is one row of a request, under the id the reply must echo.
+type explainPromptItem struct {
+	id     string
+	target explainTarget
+	facts  explainFacts
 }
 
 // cachedExplainContents keeps the biggest children of an already scanned
@@ -99,23 +113,42 @@ func explainReadFailure(err error) string {
 	return fmt.Sprintf("contenu illisible : %v", err)
 }
 
-func buildExplainPrompt(target explainTarget, contents explainContents, mode explainMode, now time.Time) string {
+func buildExplainPrompt(items []explainPromptItem, mode explainMode, now time.Time) string {
 	var b strings.Builder
-	b.WriteString("Élément à expliquer :\n")
-	if base := filepath.Base(target.Path); target.Label != "" && target.Label != base {
-		fmt.Fprintf(&b, "- Nom affiché par l'outil : %s\n", target.Label)
+	if len(items) == 1 {
+		b.WriteString("Élément à expliquer :\n")
+	} else {
+		fmt.Fprintf(&b, "%d éléments à expliquer :\n", len(items))
 	}
-	fmt.Fprintf(&b, "- Chemin : %s\n", displayPath(target.Path))
+	for _, item := range items {
+		fmt.Fprintf(&b, "\nÉlément id « %s » :\n", item.id)
+		describeExplainItem(&b, item, now)
+	}
+
+	if mode == explainDeep {
+		b.WriteString("\nTu peux lister et lire les fichiers de ce dossier, en lecture seule, pour trancher. Ne modifie, ne déplace et ne supprime rien.\n")
+	} else {
+		b.WriteString("\nRéponds avec ces seules informations, sans exécuter de commande ni lire de fichier.\n")
+	}
+	return b.String()
+}
+
+func describeExplainItem(b *strings.Builder, item explainPromptItem, now time.Time) {
+	target := item.target
+	if base := filepath.Base(target.Path); target.Label != "" && target.Label != base {
+		fmt.Fprintf(b, "- Nom affiché par l'outil : %s\n", target.Label)
+	}
+	fmt.Fprintf(b, "- Chemin : %s\n", displayPath(target.Path))
 	if target.IsDir {
 		b.WriteString("- Type : dossier\n")
 	} else {
 		b.WriteString("- Type : fichier\n")
 	}
 	if target.Size >= 0 {
-		fmt.Fprintf(&b, "- Taille : %s\n", measuredSizeLabel(target.Size, target.SizeState))
+		fmt.Fprintf(b, "- Taille : %s\n", measuredSizeLabel(target.Size, target.SizeState))
 	}
 	if !target.LastAccess.IsZero() {
-		fmt.Fprintf(&b, "- Dernier accès : il y a %d jours\n", int(now.Sub(target.LastAccess)/explainDayDuration))
+		fmt.Fprintf(b, "- Dernier accès : %s\n", explainAgeLabel(target.LastAccess, now))
 	}
 	if target.Cleanable {
 		b.WriteString("- L'outil le classe parmi les caches de développement qu'on peut nettoyer.\n")
@@ -124,8 +157,9 @@ func buildExplainPrompt(target explainTarget, contents explainContents, mode exp
 		b.WriteString("- C'est une application (.app).\n")
 	}
 
+	contents := item.facts.contents
 	if len(contents.Children) > 0 {
-		b.WriteString("\nContenu")
+		b.WriteString("- Contenu")
 		if contents.Truncated {
 			b.WriteString(" (extrait)")
 		}
@@ -136,20 +170,25 @@ func buildExplainPrompt(target explainTarget, contents explainContents, mode exp
 				name += "/"
 			}
 			if child.Size >= 0 {
-				fmt.Fprintf(&b, "- %s : %s\n", name, humanizeBytes(child.Size))
+				fmt.Fprintf(b, "  - %s : %s\n", name, humanizeBytes(child.Size))
 			} else {
-				fmt.Fprintf(&b, "- %s\n", name)
+				fmt.Fprintf(b, "  - %s\n", name)
 			}
 		}
 	}
 	if contents.Note != "" {
-		fmt.Fprintf(&b, "\n(%s)\n", contents.Note)
+		fmt.Fprintf(b, "- (%s)\n", contents.Note)
 	}
+}
 
-	if mode == explainDeep {
-		b.WriteString("\nTu peux lister et lire les fichiers de ce dossier, en lecture seule, pour trancher. Ne modifie, ne déplace et ne supprime rien.\n")
-	} else {
-		b.WriteString("\nRéponds avec ces seules informations, sans exécuter de commande ni lire de fichier.\n")
+// explainAgeLabel says how long ago t was, in whole days.
+func explainAgeLabel(t, now time.Time) string {
+	days := int(now.Sub(t) / explainDayDuration)
+	if days <= 0 {
+		return "aujourd'hui"
 	}
-	return b.String()
+	if days == 1 {
+		return "il y a 1 jour"
+	}
+	return fmt.Sprintf("il y a %d jours", days)
 }

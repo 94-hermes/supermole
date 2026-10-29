@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,12 +16,23 @@ import (
 	"time"
 )
 
-const fakeClaudeSuccess = `{"is_error":false,"result":"","structured_output":` +
-	`{"verdict":"caution","what":"Des faux iPhone pour Xcode.","if_deleted":"Tu perds leurs apps.",` +
-	`"advice":"Passe par Xcode.","needs_exploration":false}}`
+const fakeClaudeItems = `{"items":[{"id":"1","verdict":"caution","what":"Des faux iPhone pour Xcode.",` +
+	`"if_deleted":"Tu perds leurs apps.","advice":"Passe par Xcode.","needs_exploration":false}]}`
 
-const fakeCodexAnswer = `{"verdict":"safe","what":"Un cache.","if_deleted":"Il revient tout seul.",` +
-	`"advice":"Supprime-le.","needs_exploration":false}`
+const fakeClaudeSuccess = `{"is_error":false,"result":"","structured_output":` + fakeClaudeItems + `}`
+
+const fakeCodexAnswer = `{"items":[{"id":"1","verdict":"safe","what":"Un cache.","if_deleted":"Il revient tout seul.",` +
+	`"advice":"Supprime-le.","needs_exploration":false}]}`
+
+// decodeOne decodes a reply for a single row with id "1".
+func decodeOne(t *testing.T, reply []byte) explanation {
+	t.Helper()
+	answers, err := decodeExplainItems(reply, []string{"1"})
+	if err != nil {
+		t.Fatalf("decodeExplainItems() error = %v", err)
+	}
+	return answers["1"]
+}
 
 func argAfter(t *testing.T, args []string, flag string) string {
 	t.Helper()
@@ -39,11 +51,11 @@ func TestAskClaudeQuickRunsRestrictedWithoutTools(t *testing.T) {
 	}
 	call := explainCall{prompt: "Élément à expliquer", mode: explainQuick, workDir: t.TempDir()}
 
-	result, err := askClaude(context.Background(), run, "/bin/claude", call)
+	reply, err := askClaude(context.Background(), run, "/bin/claude", call)
 	if err != nil {
 		t.Fatalf("askClaude() error = %v", err)
 	}
-	if result.Verdict != explainVerdictCaution || result.What != "Des faux iPhone pour Xcode." {
+	if result := decodeOne(t, reply); result.Verdict != explainVerdictCaution || result.What != "Des faux iPhone pour Xcode." {
 		t.Fatalf("askClaude() = %+v", result)
 	}
 	for _, flag := range []string{"-p", "--restricted", "--strict-mcp-config", "--no-session-persistence"} {
@@ -97,15 +109,14 @@ func TestParseClaudeOutput(t *testing.T) {
 		{name: "exit without json", output: "boom", runErr: exitErr, wantErr: "exit status 1"},
 		{name: "unreadable output", output: "not json", wantErr: "réponse illisible"},
 		{name: "missing structured output", output: `{"is_error":false,"result":"texte libre"}`, wantErr: "sans contenu structuré"},
-		{name: "unknown verdict", output: `{"structured_output":{"verdict":"maybe","what":"x"}}`, wantErr: "verdict inconnu"},
-		{name: "empty answer", output: `{"structured_output":{"verdict":"safe","what":"  "}}`, wantErr: "réponse vide"},
+		{name: "null structured output", output: `{"is_error":false,"structured_output":null}`, wantErr: "sans contenu structuré"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseClaudeOutput([]byte(tt.output), tt.runErr)
+			reply, err := parseClaudeOutput([]byte(tt.output), tt.runErr)
 			if tt.wantErr == "" {
-				if err != nil || result.Verdict != explainVerdictCaution {
-					t.Fatalf("parseClaudeOutput() = %+v, %v", result, err)
+				if err != nil || decodeOne(t, reply).Verdict != explainVerdictCaution {
+					t.Fatalf("parseClaudeOutput() = %s, %v", reply, err)
 				}
 				return
 			}
@@ -127,11 +138,11 @@ func TestAskCodexUsesEphemeralReadOnlySandbox(t *testing.T) {
 	}
 	call := explainCall{prompt: "Élément à expliquer", mode: explainQuick, workDir: workDir, scratch: scratch}
 
-	result, err := askCodex(context.Background(), run, "/bin/codex", call)
+	reply, err := askCodex(context.Background(), run, "/bin/codex", call)
 	if err != nil {
 		t.Fatalf("askCodex() error = %v", err)
 	}
-	if result.Verdict != explainVerdictSafe {
+	if result := decodeOne(t, reply); result.Verdict != explainVerdictSafe {
 		t.Fatalf("askCodex() = %+v", result)
 	}
 	for _, flag := range []string{"exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config"} {
@@ -154,13 +165,54 @@ func TestAskCodexUsesEphemeralReadOnlySandbox(t *testing.T) {
 	}
 }
 
-func TestAskCodexRejectsMalformedAnswer(t *testing.T) {
-	run := func(_ context.Context, command explainCommand) ([]byte, error) {
-		return nil, os.WriteFile(argAfter(t, command.args, "--output-last-message"), []byte("```json"), 0o600)
-	}
+func TestAskCodexReportsMissingAnswer(t *testing.T) {
+	run := func(context.Context, explainCommand) ([]byte, error) { return nil, nil }
 	_, err := askCodex(context.Background(), run, "/bin/codex", explainCall{workDir: t.TempDir(), scratch: t.TempDir()})
-	if err == nil || !strings.Contains(err.Error(), "réponse illisible") {
+	if err == nil || !strings.Contains(err.Error(), "pas de réponse") {
 		t.Fatalf("askCodex() error = %v", err)
+	}
+}
+
+func TestDecodeExplainItems(t *testing.T) {
+	item := func(id, verdict, what string) string {
+		return fmt.Sprintf(`{"id":%q,"verdict":%q,"what":%q,"if_deleted":"x","advice":"y","needs_exploration":false}`, id, verdict, what)
+	}
+	tests := []struct {
+		name    string
+		reply   string
+		wantIDs []string
+		wantErr string
+	}{
+		{name: "every row answered", reply: `{"items":[` + item("1", "safe", "a") + `,` + item("2", "keep", "b") + `]}`, wantIDs: []string{"1", "2"}},
+		{name: "one malformed row keeps the others", reply: `{"items":[` + item("1", "maybe", "a") + `,` + item("2", "keep", "b") + `]}`, wantIDs: []string{"2"}},
+		{name: "unknown ids are ignored", reply: `{"items":[` + item("9", "safe", "a") + `,` + item("1", "safe", "b") + `]}`, wantIDs: []string{"1"}},
+		{name: "first answer per id wins", reply: `{"items":[` + item("1", "safe", "first") + `,` + item("1", "keep", "second") + `]}`, wantIDs: []string{"1"}},
+		{name: "nothing usable", reply: `{"items":[` + item("1", "maybe", "a") + `]}`, wantErr: "verdict inconnu"},
+		{name: "empty answer", reply: `{"items":[` + item("1", "safe", "  ") + `]}`, wantErr: "réponse vide"},
+		{name: "no items", reply: `{"items":[]}`, wantErr: "aucune réponse exploitable"},
+		{name: "not json", reply: "```json", wantErr: "réponse illisible"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			answers, err := decodeExplainItems([]byte(tt.reply), []string{"1", "2"})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || len(answers) != len(tt.wantIDs) {
+				t.Fatalf("answers = %+v, err = %v, want ids %q", answers, err, tt.wantIDs)
+			}
+			for _, id := range tt.wantIDs {
+				if _, ok := answers[id]; !ok {
+					t.Fatalf("missing answer %s in %+v", id, answers)
+				}
+			}
+			if tt.name == "first answer per id wins" && answers["1"].What != "first" {
+				t.Fatalf("answers[1] = %+v, want the first item", answers["1"])
+			}
+		})
 	}
 }
 
@@ -189,6 +241,15 @@ func fakeExplainBackend(t *testing.T, answers map[string]error, calls *[]string)
 	}
 }
 
+// acceptOne decodes a single-row reply into *got.
+func acceptOne(got *explanation) func(json.RawMessage) error {
+	return func(reply json.RawMessage) error {
+		answers, err := decodeExplainItems(reply, []string{"1"})
+		*got = answers["1"]
+		return err
+	}
+}
+
 func TestAskExplainProvidersFallsBackToCodex(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -212,9 +273,10 @@ func TestAskExplainProvidersFallsBackToCodex(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var calls []string
 			backend := fakeExplainBackend(t, tt.answers, &calls)
-			call := explainCall{mode: explainQuick, workDir: t.TempDir(), scratch: t.TempDir()}
+			call := explainCall{mode: explainQuick, timeout: explainQuickTimeout, workDir: t.TempDir(), scratch: t.TempDir()}
 
-			result, err := askExplainProviders(context.Background(), backend, call)
+			var result explanation
+			provider, err := askExplainProviders(context.Background(), backend, call, acceptOne(&result))
 			if !slices.Equal(calls, tt.wantCalls) {
 				t.Fatalf("calls = %q, want %q", calls, tt.wantCalls)
 			}
@@ -226,8 +288,8 @@ func TestAskExplainProvidersFallsBackToCodex(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || result.Provider != tt.wantLabel {
-				t.Fatalf("result = %+v, err = %v, want provider %s", result, err, tt.wantLabel)
+			if err != nil || provider != tt.wantLabel || result.What == "" {
+				t.Fatalf("provider = %q, result = %+v, err = %v, want provider %s", provider, result, err, tt.wantLabel)
 			}
 		})
 	}
@@ -243,20 +305,26 @@ func TestAskExplainProvidersStopsWhenCanceled(t *testing.T) {
 		return nil, context.Canceled
 	}
 
-	_, err := askExplainProviders(ctx, backend, explainCall{workDir: t.TempDir(), scratch: t.TempDir()})
+	var result explanation
+	_, err := askExplainProviders(ctx, backend, explainCall{timeout: explainQuickTimeout, workDir: t.TempDir(), scratch: t.TempDir()}, acceptOne(&result))
 	if !errors.Is(err, context.Canceled) || len(calls) != 1 {
 		t.Fatalf("err = %v, calls = %q: quitting must not fall back to Codex", err, calls)
 	}
 }
 
-func TestAskExplainProvidersMarksDeepAnswersExplored(t *testing.T) {
+func TestAskExplainProvidersFallsBackOnRejectedReply(t *testing.T) {
 	var calls []string
-	backend := fakeExplainBackend(t, map[string]error{"claude": nil}, &calls)
-	for _, mode := range []explainMode{explainQuick, explainDeep} {
-		result, err := askExplainProviders(context.Background(), backend, explainCall{mode: mode, workDir: t.TempDir(), scratch: t.TempDir()})
-		if err != nil || result.Explored != (mode == explainDeep) {
-			t.Fatalf("mode %d: result = %+v, err = %v", mode, result, err)
+	backend := fakeExplainBackend(t, map[string]error{"claude": nil, "codex": nil}, &calls)
+	rejectClaude := func(reply json.RawMessage) error {
+		if strings.Contains(string(reply), "caution") {
+			return errors.New("verdict inconnu")
 		}
+		return nil
+	}
+
+	provider, err := askExplainProviders(context.Background(), backend, explainCall{timeout: explainQuickTimeout, workDir: t.TempDir(), scratch: t.TempDir()}, rejectClaude)
+	if err != nil || provider != "Codex" || !slices.Equal(calls, []string{"claude", "codex"}) {
+		t.Fatalf("provider = %q, err = %v, calls = %q: an unusable Claude reply must fall back", provider, err, calls)
 	}
 }
 

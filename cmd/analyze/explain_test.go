@@ -51,8 +51,8 @@ func (r *recordingExplainBackend) calls() []explainCommand {
 }
 
 func claudeReplyJSON(verdict explainVerdict, needsExploration bool) string {
-	return fmt.Sprintf(`{"is_error":false,"structured_output":{"verdict":%q,"what":"Des faux iPhone pour Xcode.",`+
-		`"if_deleted":"Tu perds leurs apps.","advice":"Passe par Xcode.","needs_exploration":%t}}`, verdict, needsExploration)
+	return fmt.Sprintf(`{"is_error":false,"structured_output":{"items":[{"id":"1","verdict":%q,"what":"Des faux iPhone pour Xcode.",`+
+		`"if_deleted":"Tu perds leurs apps.","advice":"Passe par Xcode.","needs_exploration":%t}]}}`, verdict, needsExploration)
 }
 
 func newExplainTestModel(t *testing.T, recorder *recordingExplainBackend) model {
@@ -289,7 +289,7 @@ func TestExplainIgnoresStaleResult(t *testing.T) {
 	target := m.entries[0].Path
 	m, _ = pressExplainKey(t, m, explainKey)
 
-	next, _ := m.Update(explainResultMsg{path: target, requestID: m.explain.entries[target].requestID + 1})
+	next, _ := m.Update(explainResultMsg{requestID: m.explain.entries[target].requestID + 1, outcomes: map[string]explainOutcome{target: {result: explanation{Verdict: explainVerdictSafe, What: "x"}}}})
 	if got := next.(model).explain.entries[target]; got.state != explainLoading {
 		t.Fatalf("stale result replaced the pending request: %+v", got)
 	}
@@ -354,7 +354,7 @@ func TestExplainPanelKeepsViewInsideTerminal(t *testing.T) {
 
 func TestExplainPanelBordersAlign(t *testing.T) {
 	long := strings.Repeat("Un dossier très très long à expliquer avec des accents é à ç. ", 6)
-	reply := fmt.Sprintf(`{"structured_output":{"verdict":"caution","what":%q,"if_deleted":%q,"advice":%q,"needs_exploration":true}}`, long, long, long)
+	reply := fmt.Sprintf(`{"structured_output":{"items":[{"id":"1","verdict":"caution","what":%q,"if_deleted":%q,"advice":%q,"needs_exploration":true}]}}`, long, long, long)
 	for _, width := range []int{30, 80, 200} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			m := newExplainTestModel(t, &recordingExplainBackend{reply: reply})
@@ -408,7 +408,7 @@ func TestShutdownExplainCancelsRunningAgents(t *testing.T) {
 	if elapsed := time.Since(begin); elapsed >= explainShutdownGrace {
 		t.Fatalf("shutdown waited the full grace (%s); the running agent was not canceled", elapsed)
 	}
-	if got := <-results; len(got) != 1 || !errors.Is(got[0].err, context.Canceled) {
+	if got := <-results; len(got) != 1 || !errors.Is(got[0].outcomes[m.entries[0].Path].err, context.Canceled) {
 		t.Fatalf("results = %+v, want one canceled request", got)
 	}
 }
