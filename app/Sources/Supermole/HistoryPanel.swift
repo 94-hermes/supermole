@@ -21,7 +21,7 @@ final class HistoryModel {
 /// The inspector beside every space: what Supermole did, most recent first.
 struct HistoryPanel: View {
     let runner: MoleRunner
-    @State private var model = HistoryModel()
+    let model: HistoryModel
 
     var body: some View {
         ScrollView {
@@ -36,8 +36,8 @@ struct HistoryPanel: View {
                     if sessions.isEmpty {
                         Text("Nothing yet.").foregroundStyle(.secondary)
                     }
-                    ForEach(sessions) { session in
-                        SessionRow(session: session)
+                    ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
+                        SessionRow(session: session).entrance(index)
                     }
                 } else if model.errorMessage == nil {
                     ProgressView().frame(maxWidth: .infinity)
@@ -58,7 +58,7 @@ private struct SessionRow: View {
                 .font(.title3)
                 .foregroundStyle(Theme.accent)
                 .frame(width: 36, height: 36)
-                .glassEffect(.regular.tint(Theme.purple.opacity(0.15)), in: .circle)
+                .glassEffect(.regular.tint(Theme.indigo.opacity(0.15)), in: .circle)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(Self.title(for: session.command)).font(.headline)
@@ -67,7 +67,7 @@ private struct SessionRow: View {
                         Text(verbatim: Formatting.bytes(bytes))
                             .font(.headline)
                             .monospacedDigit()
-                            .foregroundStyle(Theme.green)
+                            .foregroundStyle(Theme.teal)
                     }
                 }
                 Text(verbatim: startedAt).font(.caption).foregroundStyle(.secondary)
@@ -76,7 +76,7 @@ private struct SessionRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if let failed = actions.failed, failed > 0 {
-                        Text("\(failed) failed").font(.caption).foregroundStyle(Theme.warning)
+                        Text("\(failed) failed").font(.caption).foregroundStyle(Theme.amber)
                     }
                 }
             }

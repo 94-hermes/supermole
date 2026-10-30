@@ -10,7 +10,7 @@ struct SetupView: View {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .frame(width: 112, height: 112)
-                .shadow(color: Theme.purple.opacity(0.35), radius: 24, y: 8)
+                .shadow(color: Theme.indigo.opacity(0.3), radius: 24, y: 8)
             Text("Welcome to Supermole")
                 .font(.system(size: 34, weight: .bold, design: .rounded))
 

@@ -1,36 +1,56 @@
 import SwiftUI
 
-/// Colors, shapes and number formats shared by every space of the app.
+/// Colors, shapes, motion and number formats shared by every space.
+///
+/// Three complementary hues on a near-neutral background: indigo leads,
+/// teal answers it, and amber is kept for what needs attention.
 enum Theme {
-    /// The SUPERMOLE banner's purple and green, brightened for glass.
-    static let purple = Color(red: 0.58, green: 0.33, blue: 0.86)
-    static let indigo = Color(red: 0.36, green: 0.40, blue: 0.95)
-    static let green = Color(red: 0.30, green: 0.72, blue: 0.45)
-    static let warning = Color.orange
-    static let danger = Color.red
+    static let indigo = Color(red: 0.36, green: 0.36, blue: 0.84)
+    static let teal = Color(red: 0.15, green: 0.60, blue: 0.62)
+    static let amber = Color(red: 0.91, green: 0.60, blue: 0.30)
+    static let rose = Color(red: 0.84, green: 0.33, blue: 0.40)
 
-    static let accent = LinearGradient(colors: [purple, indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// The signature gradient: indigo into teal.
+    static let accent = LinearGradient(colors: [indigo, teal], startPoint: .leading, endPoint: .trailing)
 
     static let cardRadius: CGFloat = 26
     static let rowRadius: CGFloat = 16
     static let spacing: CGFloat = 20
     static let pagePadding: CGFloat = 28
 
-    /// A 0-100 score's color: green when healthy, orange, then red.
-    static func scoreColor(_ score: Int) -> Color {
+    /// A 0-100 score's colors, for its gauge: calm when healthy, warm when not.
+    static func scoreColors(_ score: Int) -> [Color] {
         switch score {
-        case 80...: return green
-        case 60..<80: return warning
-        default: return danger
+        case 80...: return [teal, indigo]
+        case 60..<80: return [amber, amber.opacity(0.7)]
+        default: return [rose, amber]
         }
+    }
+
+    static func scoreColor(_ score: Int) -> Color {
+        scoreColors(score)[0]
     }
 
     /// A usage share's color: the given tint until the resource is nearly full.
     static let nearlyFullShare = 0.85
 
-    static func usageColor(_ share: Double, tint: Color = purple) -> Color {
-        share > nearlyFullShare ? warning : tint
+    static func usageColor(_ share: Double, tint: Color = indigo) -> Color {
+        share > nearlyFullShare ? amber : tint
     }
+}
+
+/// Motion, kept to entrances and value changes: nothing loops, so an idle
+/// window costs no frames. The rolling-digits transition blurs on the CPU,
+/// so only the large figures use it.
+enum Motion {
+    static let entrance = Animation.spring(response: 0.55, dampingFraction: 0.86)
+    static let value = Animation.smooth(duration: 0.9)
+    /// A periodic reading: short, so live figures cost few frames.
+    static let update = Animation.smooth(duration: 0.35)
+    static let hover = Animation.spring(response: 0.3, dampingFraction: 0.8)
+    static let space = Animation.smooth(duration: 0.35)
+    /// Delay between two cards of one cascade.
+    static let stagger = 0.06
 }
 
 enum Formatting {
@@ -48,7 +68,8 @@ enum Formatting {
     }
 }
 
-/// A soft, slowly shifting mesh of the brand colors that Liquid Glass refracts.
+/// A quiet, nearly neutral mesh with a breath of the three hues, for the
+/// glass to refract. Static: it is drawn once.
 struct AmbientBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -67,14 +88,14 @@ struct AmbientBackground: View {
     }
 
     private static let lightColors: [Color] = [
-        Color(red: 0.86, green: 0.80, blue: 1.00), Color(red: 0.94, green: 0.91, blue: 1.00), Color(red: 0.80, green: 0.94, blue: 0.88),
-        Color(red: 0.91, green: 0.87, blue: 1.00), Color(red: 0.98, green: 0.97, blue: 1.00), Color(red: 0.85, green: 0.89, blue: 1.00),
-        Color(red: 0.83, green: 0.91, blue: 0.99), Color(red: 0.93, green: 0.89, blue: 1.00), Color(red: 0.90, green: 0.82, blue: 0.99),
+        Color(red: 0.91, green: 0.91, blue: 0.97), Color(red: 0.96, green: 0.96, blue: 0.98), Color(red: 0.89, green: 0.95, blue: 0.95),
+        Color(red: 0.95, green: 0.95, blue: 0.97), Color(red: 0.98, green: 0.98, blue: 0.99), Color(red: 0.93, green: 0.95, blue: 0.97),
+        Color(red: 0.92, green: 0.95, blue: 0.96), Color(red: 0.96, green: 0.95, blue: 0.96), Color(red: 0.97, green: 0.93, blue: 0.90),
     ]
 
     private static let darkColors: [Color] = [
-        Color(red: 0.16, green: 0.10, blue: 0.27), Color(red: 0.10, green: 0.09, blue: 0.18), Color(red: 0.07, green: 0.17, blue: 0.16),
-        Color(red: 0.12, green: 0.09, blue: 0.22), Color(red: 0.08, green: 0.08, blue: 0.13), Color(red: 0.10, green: 0.11, blue: 0.24),
-        Color(red: 0.07, green: 0.12, blue: 0.20), Color(red: 0.11, green: 0.08, blue: 0.19), Color(red: 0.17, green: 0.09, blue: 0.24),
+        Color(red: 0.11, green: 0.11, blue: 0.20), Color(red: 0.08, green: 0.08, blue: 0.11), Color(red: 0.06, green: 0.14, blue: 0.15),
+        Color(red: 0.09, green: 0.09, blue: 0.14), Color(red: 0.07, green: 0.07, blue: 0.09), Color(red: 0.08, green: 0.10, blue: 0.15),
+        Color(red: 0.06, green: 0.11, blue: 0.12), Color(red: 0.09, green: 0.08, blue: 0.11), Color(red: 0.15, green: 0.10, blue: 0.08),
     ]
 }

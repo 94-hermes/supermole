@@ -1,9 +1,12 @@
 import SwiftUI
 
-/// A Liquid Glass panel holding one block of content.
+/// A Liquid Glass panel holding one block of content. It lifts a little
+/// under the pointer.
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 22
     @ViewBuilder let content: Content
+
+    @State private var isHovered = false
 
     var body: some View {
         content
@@ -11,6 +14,35 @@ struct GlassCard<Content: View>: View {
             // Fills its row's height, so cards side by side end on one line.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
+            .scaleEffect(isHovered ? 1.008 : 1)
+            .onHover { hovering in
+                withAnimation(Motion.hover) { isHovered = hovering }
+            }
+    }
+}
+
+/// Fades and rises into place once, `order` steps after the first card of
+/// its cascade.
+struct EntranceEffect: ViewModifier {
+    let order: Int
+    @State private var isVisible = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 18)
+            .scaleEffect(isVisible ? 1 : 0.97, anchor: .top)
+            .onAppear {
+                withAnimation(Motion.entrance.delay(Double(order) * Motion.stagger)) {
+                    isVisible = true
+                }
+            }
+    }
+}
+
+extension View {
+    func entrance(_ order: Int = 0) -> some View {
+        modifier(EntranceEffect(order: order))
     }
 }
 
@@ -27,6 +59,7 @@ struct PageHeader: View {
                 Text(verbatim: subtitle)
                     .font(.title3)
                     .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -37,7 +70,7 @@ struct PageHeader: View {
 struct CardLabel: View {
     let title: LocalizedStringKey
     let symbol: String
-    var tint: Color = Theme.purple
+    var tint: Color = Theme.indigo
 
     var body: some View {
         Label {
@@ -61,7 +94,7 @@ struct Pill: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .foregroundStyle(color)
-            .glassEffect(.regular.tint(color.opacity(0.25)), in: .capsule)
+            .glassEffect(.regular.tint(color.opacity(0.22)), in: .capsule)
     }
 }
 
@@ -74,10 +107,10 @@ struct ErrorBanner: View {
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
         }
-        .foregroundStyle(Theme.danger)
+        .foregroundStyle(Theme.rose)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(Theme.danger.opacity(0.12)), in: .rect(cornerRadius: Theme.rowRadius))
+        .glassEffect(.regular.tint(Theme.rose.opacity(0.12)), in: .rect(cornerRadius: Theme.rowRadius))
     }
 }
 

@@ -14,7 +14,7 @@ struct SupermoleApp: App {
             RootView()
                 .environment(model)
                 .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
-                .tint(Theme.purple)
+                .tint(Theme.indigo)
                 .task { model.locate() }
         }
         .defaultSize(Self.defaultSize)
@@ -27,7 +27,7 @@ struct SupermoleApp: App {
         Settings {
             SettingsView()
                 .environment(model)
-                .tint(Theme.purple)
+                .tint(Theme.indigo)
         }
     }
 }

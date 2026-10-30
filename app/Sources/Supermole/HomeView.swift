@@ -3,12 +3,18 @@ import SupermoleCore
 import SwiftUI
 
 /// Follows `mo status --watch` and keeps the last minutes of CPU and memory.
+///
+/// One reading every five seconds, and only while the app is in front: the
+/// view cancels the watch otherwise, which stops `mo`, so an idle Supermole
+/// runs no collector at all.
 @MainActor
 @Observable
 final class HomeModel {
-    static let arguments = ["status", "--watch", "--interval", "2s"]
-    /// Three minutes at one reading every two seconds.
-    static let historyLength = 90
+    static let interval = "5s"
+    static let arguments = ["status", "--watch", "--interval", interval]
+    static let oneReading = ["status", "--json"]
+    /// Five minutes of readings.
+    static let historyLength = 60
 
     private(set) var snapshot: StatusSnapshot?
     private(set) var cpuHistory: [Sample] = []
@@ -16,18 +22,30 @@ final class HomeModel {
     private(set) var errorMessage: String?
     private var readings = 0
 
-    /// Runs until the view goes away, which cancels the task and stops `mo`.
     func watch(using runner: MoleRunner) async {
         errorMessage = nil
         do {
             for try await line in runner.lines(Self.arguments) where !line.isEmpty {
                 do {
-                    record(try MoleJSON.decode(StatusSnapshot.self, from: Data(line.utf8)))
+                    let snapshot = try MoleJSON.decode(StatusSnapshot.self, from: Data(line.utf8))
+                    withAnimation(Motion.update) { record(snapshot) }
                     errorMessage = nil
                 } catch {
                     errorMessage = error.localizedDescription
                 }
             }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// A single reading, for a window that is visible but not in front and
+    /// has nothing to show yet.
+    func readOnce(using runner: MoleRunner) async {
+        do {
+            let snapshot = try await runner.decode(StatusSnapshot.self, Self.oneReading)
+            withAnimation(Motion.update) { record(snapshot) }
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -54,8 +72,12 @@ final class HomeModel {
 
 struct HomeView: View {
     let runner: MoleRunner
+    let model: HomeModel
     let navigate: (AppSpace) -> Void
-    @State private var model = HomeModel()
+
+    /// False once another app comes to the front: the watch stops with it.
+    /// `scenePhase` stays active while the window is merely visible.
+    @Environment(\.appearsActive) private var appearsActive
     @State private var contentWidth: CGFloat = 0
 
     /// From this width up, Health and Storage sit side by side.
@@ -65,6 +87,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.spacing) {
                 PageHeader(title: "Home", subtitle: model.snapshot?.hardware.map(Self.hardwareLine))
+                    .entrance()
                 if let message = model.errorMessage {
                     ErrorBanner(message: message)
                 }
@@ -73,20 +96,20 @@ struct HomeView: View {
                         VStack(spacing: Theme.spacing) {
                             // Side by side when the window is wide enough, stacked otherwise.
                             heroLayout {
-                                HealthCard(snapshot: snapshot)
-                                StorageCard(snapshot: snapshot)
+                                HealthCard(snapshot: snapshot).entrance(1)
+                                StorageCard(snapshot: snapshot).entrance(2)
                             }
                             .fixedSize(horizontal: false, vertical: true)
                             HStack(alignment: .top, spacing: Theme.spacing) {
-                                MemoryTile(snapshot: snapshot, history: model.memoryHistory)
-                                ProcessorTile(snapshot: snapshot, history: model.cpuHistory)
-                                BatteryTile(snapshot: snapshot)
+                                MemoryTile(snapshot: snapshot, history: model.memoryHistory).entrance(3)
+                                ProcessorTile(snapshot: snapshot, history: model.cpuHistory).entrance(4)
+                                BatteryTile(snapshot: snapshot).entrance(5)
                             }
                             .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    FreeSpaceCall { navigate(.clean) }
-                    BusiestApps(snapshot: snapshot)
+                    FreeSpaceCall { navigate(.clean) }.entrance(6)
+                    BusiestApps(snapshot: snapshot).entrance(7)
                 } else if model.errorMessage == nil {
                     LoadingCard(message: "Reading your Mac…")
                 }
@@ -96,7 +119,13 @@ struct HomeView: View {
         // The scroll view's width, which the layout choice cannot change: measuring
         // the content instead fed back into itself and AppKit aborted the app.
         .onGeometryChange(for: CGFloat.self) { $0.size.width - 2 * Theme.pagePadding } action: { contentWidth = $0 }
-        .task { await model.watch(using: runner) }
+        .task(id: appearsActive) {
+            if appearsActive {
+                await model.watch(using: runner)
+            } else if model.snapshot == nil {
+                await model.readOnce(using: runner)
+            }
+        }
     }
 
     private var heroLayout: AnyLayout {
@@ -123,20 +152,19 @@ private struct HealthCard: View {
     var body: some View {
         let score = snapshot.healthScore ?? 0
         let message = MoleText.healthMessage(snapshot.healthScoreMsg ?? "")
-        let color = Theme.scoreColor(score)
         GlassCard {
             HStack(spacing: 22) {
-                RingGauge(fraction: Double(score) / 100, colors: [color.opacity(0.6), color], lineWidth: 16) {
+                RingGauge(fraction: Double(score) / 100, colors: Theme.scoreColors(score), lineWidth: 16) {
                     VStack(spacing: 0) {
                         Text(verbatim: "\(score)")
                             .font(.system(size: 40, weight: .bold, design: .rounded))
-                            .contentTransition(.numericText())
+                            .contentTransition(.numericText(value: Double(score)))
                         Text("out of 100").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .frame(width: largeGaugeSize, height: largeGaugeSize)
                 VStack(alignment: .leading, spacing: 10) {
-                    CardLabel(title: "Health", symbol: "heart.fill", tint: color)
+                    CardLabel(title: "Health", symbol: "heart.fill", tint: Theme.scoreColor(score))
                     Text(verbatim: MoleTerms.localized(message.rating, .health))
                         .font(.system(size: 24, weight: .semibold, design: .rounded))
                     if message.issues.isEmpty {
@@ -144,7 +172,7 @@ private struct HealthCard: View {
                     } else {
                         ForEach(message.issues, id: \.self) { issue in
                             Label(MoleTerms.localized(issue, .issue), systemImage: "exclamationmark.circle.fill")
-                                .foregroundStyle(Theme.warning)
+                                .foregroundStyle(Theme.amber)
                         }
                     }
                     if let seconds = snapshot.uptimeSeconds {
@@ -168,9 +196,9 @@ private struct StorageCard: View {
                 let free = total > used ? total - used : 0
                 HStack(spacing: 22) {
                     StorageDonut(slices: [
-                        StorageSlice(id: "used", label: "Used", bytes: used - purgeable, color: Theme.purple),
-                        StorageSlice(id: "purgeable", label: "Purgeable", bytes: purgeable, color: Theme.indigo.opacity(0.55)),
-                        StorageSlice(id: "free", label: "Free", bytes: free, color: Theme.green),
+                        StorageSlice(id: "used", label: "Used", bytes: used - purgeable, color: Theme.indigo),
+                        StorageSlice(id: "purgeable", label: "Purgeable", bytes: purgeable, color: Theme.indigo.opacity(0.4)),
+                        StorageSlice(id: "free", label: "Free", bytes: free, color: Theme.teal),
                     ]) {
                         VStack(spacing: 0) {
                             Text(verbatim: Formatting.bytes(free))
@@ -181,9 +209,9 @@ private struct StorageCard: View {
                     .frame(width: largeGaugeSize, height: largeGaugeSize)
                     VStack(alignment: .leading, spacing: 12) {
                         CardLabel(title: "Storage", symbol: "internaldrive.fill")
-                        LegendRow(color: Theme.purple, label: "Used", value: Formatting.bytes(used - purgeable))
-                        LegendRow(color: Theme.indigo.opacity(0.55), label: "Purgeable", value: Formatting.bytes(purgeable))
-                        LegendRow(color: Theme.green, label: "Free", value: Formatting.bytes(free))
+                        LegendRow(color: Theme.indigo, label: "Used", value: Formatting.bytes(used - purgeable))
+                        LegendRow(color: Theme.indigo.opacity(0.4), label: "Purgeable", value: Formatting.bytes(purgeable))
+                        LegendRow(color: Theme.teal, label: "Free", value: Formatting.bytes(free))
                         Text("\(Formatting.bytes(total)) in total").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -200,7 +228,7 @@ private struct MetricTile<Footer: View>: View {
     let title: LocalizedStringKey
     let symbol: String
     let value: String
-    var tint: Color = Theme.purple
+    var tint: Color = Theme.indigo
     @ViewBuilder let footer: Footer
 
     var body: some View {
@@ -222,8 +250,8 @@ private struct MemoryTile: View {
 
     var body: some View {
         let share = history.last.map { $0.value / 100 } ?? 0
-        MetricTile(title: "Memory", symbol: "memorychip.fill", value: Formatting.percent(share * 100), tint: Theme.indigo) {
-            Sparkline(samples: history, color: Theme.usageColor(share, tint: Theme.indigo)).frame(height: 54)
+        MetricTile(title: "Memory", symbol: "memorychip.fill", value: Formatting.percent(share * 100)) {
+            Sparkline(samples: history, color: Theme.usageColor(share)).frame(height: 54)
             if let used = snapshot.memory?.used, let total = snapshot.memory?.total {
                 Text("\(Formatting.bytes(used)) of \(Formatting.bytes(total))").font(.caption).foregroundStyle(.secondary)
             }
@@ -237,8 +265,8 @@ private struct ProcessorTile: View {
 
     var body: some View {
         let usage = snapshot.cpu?.usage ?? 0
-        MetricTile(title: "Processor", symbol: "cpu.fill", value: Formatting.percent(usage)) {
-            Sparkline(samples: history, color: Theme.usageColor(usage / 100)).frame(height: 54)
+        MetricTile(title: "Processor", symbol: "cpu.fill", value: Formatting.percent(usage), tint: Theme.teal) {
+            Sparkline(samples: history, color: Theme.usageColor(usage / 100, tint: Theme.teal)).frame(height: 54)
             if let model = snapshot.hardware?.cpuModel {
                 Text(verbatim: model).font(.caption).foregroundStyle(.secondary)
             }
@@ -251,9 +279,9 @@ private struct BatteryTile: View {
 
     var body: some View {
         if let battery = snapshot.batteries?.first, let percent = battery.percent {
-            MetricTile(title: "Battery", symbol: battery.status == "charging" ? "battery.100.bolt" : "battery.75", value: Formatting.percent(percent), tint: Theme.green) {
+            MetricTile(title: "Battery", symbol: battery.status == "charging" ? "battery.100.bolt" : "battery.75", value: Formatting.percent(percent), tint: Theme.teal) {
                 HStack(spacing: 14) {
-                    RingGauge(fraction: percent / 100, colors: [Theme.green.opacity(0.6), Theme.green], lineWidth: 8) {
+                    RingGauge(fraction: percent / 100, colors: [Theme.teal, Theme.indigo], lineWidth: 8) {
                         EmptyView()
                     }
                     .frame(width: 46, height: 46)
@@ -287,7 +315,7 @@ private struct FreeSpaceCall: View {
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 60, height: 60)
-                    .glassEffect(.regular.tint(Theme.purple.opacity(0.2)), in: .circle)
+                    .glassEffect(.regular.tint(Theme.indigo.opacity(0.15)), in: .circle)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Free up space").font(.title2.weight(.semibold))
                     Text("Supermole finds caches, leftovers and files you no longer need, and shows you everything before it removes anything.")
@@ -315,14 +343,14 @@ private struct BusiestApps: View {
         if let processes = snapshot.topProcesses, !processes.isEmpty {
             GlassCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    CardLabel(title: "Busiest apps", symbol: "flame.fill", tint: Theme.warning)
+                    CardLabel(title: "Busiest apps", symbol: "flame.fill", tint: Theme.amber)
                     ForEach(processes.prefix(5)) { process in
                         let usage = process.cpu ?? 0
                         HStack(spacing: 12) {
                             Text(verbatim: process.name ?? "?").lineLimit(1)
                             Spacer()
                             Capsule()
-                                .fill(Theme.usageColor(usage / 100).gradient)
+                                .fill(usage / 100 > Theme.nearlyFullShare ? AnyShapeStyle(Theme.amber) : AnyShapeStyle(Theme.accent))
                                 .frame(width: max(4, min(usage, 100) * 1.4), height: 8)
                             Text(verbatim: Formatting.percent(usage))
                                 .monospacedDigit()

@@ -50,7 +50,9 @@ final class DiskModel {
 
 struct DiskView: View {
     let runner: MoleRunner
-    @State private var model = DiskModel()
+    /// Owned by the window, so coming back to this space shows the last
+    /// scan instead of measuring the whole disk again.
+    let model: DiskModel
 
     /// How many of the largest items the chart compares.
     private static let chartedEntries = 8
@@ -85,10 +87,14 @@ struct DiskView: View {
                     let entries = result.sortedEntries
                     if !entries.isEmpty {
                         SizeChart(entries: Array(entries.prefix(Self.chartedEntries)))
+                            .entrance(1)
+                            .id(result.path)
                     }
                     EntryList(entries: entries, answers: model.answers) { path in
                         model.open(path, using: runner)
                     }
+                    .entrance(2)
+                    .id("list-\(result.path)")
                 }
             }
             .padding(Theme.pagePadding)
@@ -110,19 +116,22 @@ struct DiskView: View {
 private struct SizeChart: View {
     let entries: [AnalyzeResult.Entry]
 
+    /// The bars grow from zero when the chart appears.
+    @State private var growth = 0.0
+
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
                 CardLabel(title: "Largest items", symbol: "chart.bar.fill")
                 Chart(entries) { entry in
                     BarMark(
-                        x: .value("Size", entry.size),
+                        x: .value("Size", Double(entry.size) * growth),
                         y: .value("Name", MoleTerms.localized(entry.name, .place))
                     )
                     .cornerRadius(8)
                     .foregroundStyle(
                         LinearGradient(
-                            colors: entry.insight == true ? [Theme.warning.opacity(0.7), Theme.warning] : [Theme.purple, Theme.indigo],
+                            colors: entry.insight == true ? [Theme.amber.opacity(0.65), Theme.amber] : [Theme.indigo, Theme.teal],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -134,10 +143,12 @@ private struct SizeChart: View {
                     }
                 }
                 .chartXAxis(.hidden)
+                .chartXScale(domain: 0...Double(max(entries.first?.size ?? 1, 1)) * 1.12)
                 .chartYAxis {
                     AxisMarks { _ in AxisValueLabel().font(.callout) }
                 }
                 .frame(height: CGFloat(entries.count) * 34)
+                .onAppear { withAnimation(Motion.value) { growth = 1 } }
             }
         }
     }
@@ -182,7 +193,7 @@ private struct EntryRow: View {
                         .font(.body.weight(.medium))
                         .lineLimit(1)
                     if entry.insight == true {
-                        Pill(text: "Worth a look", color: Theme.warning)
+                        Pill(text: "Worth a look", color: Theme.amber)
                     }
                     if let verdict = answer?.verdict {
                         VerdictPill(verdict: verdict)
@@ -246,9 +257,9 @@ private struct VerdictPill: View {
 
     var body: some View {
         switch verdict {
-        case "safe": Pill(text: "Safe to delete", color: Theme.green)
-        case "caution": Pill(text: "Check first", color: Theme.warning)
-        case "keep": Pill(text: "Keep", color: Theme.danger)
+        case "safe": Pill(text: "Safe to delete", color: Theme.teal)
+        case "caution": Pill(text: "Check first", color: Theme.amber)
+        case "keep": Pill(text: "Keep", color: Theme.rose)
         default: Pill(text: "Unsure", color: .secondary)
         }
     }

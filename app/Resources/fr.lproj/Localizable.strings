@@ -48,7 +48,6 @@
 /* Chart labels, read by VoiceOver */
 "Time" = "Temps";
 "Value" = "Valeur";
-"Bytes" = "Octets";
 "Size" = "Taille";
 "Name" = "Nom";
 

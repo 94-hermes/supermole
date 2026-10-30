@@ -34,6 +34,10 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var space: AppSpace? = .home
     @State private var showsHistory = false
+    // Kept for the window's life, so switching spaces never repeats a scan.
+    @State private var home = HomeModel()
+    @State private var disk = DiskModel()
+    @State private var history = HistoryModel()
 
     var body: some View {
         if model.phase == .ready, let runner = model.runner {
@@ -44,10 +48,13 @@ struct RootView: View {
                 }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
             } detail: {
-                SpaceView(space: space ?? .home, runner: runner) { space = $0 }
+                SpaceView(space: space ?? .home, runner: runner, home: home, disk: disk) { space = $0 }
+                    .id(space)
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+                    .animation(Motion.space, value: space)
                     .background(AmbientBackground())
                     .inspector(isPresented: $showsHistory) {
-                        HistoryPanel(runner: runner)
+                        HistoryPanel(runner: runner, model: history)
                             .inspectorColumnWidth(min: 300, ideal: 340, max: 420)
                     }
                     .toolbar(removing: .title)
@@ -77,14 +84,16 @@ struct RootView: View {
 private struct SpaceView: View {
     let space: AppSpace
     let runner: MoleRunner
+    let home: HomeModel
+    let disk: DiskModel
     let navigate: (AppSpace) -> Void
 
     var body: some View {
         switch space {
         case .home:
-            HomeView(runner: runner, navigate: navigate)
+            HomeView(runner: runner, model: home, navigate: navigate)
         case .disk:
-            DiskView(runner: runner)
+            DiskView(runner: runner, model: disk)
         case .clean:
             UpcomingView(
                 space: space,
@@ -110,7 +119,7 @@ private struct UpcomingView: View {
                 .font(.system(size: 52, weight: .medium))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 110, height: 110)
-                .glassEffect(.regular.tint(Theme.purple.opacity(0.15)), in: .circle)
+                .glassEffect(.regular.tint(Theme.indigo.opacity(0.15)), in: .circle)
             Text(space.title)
                 .font(.system(size: 30, weight: .bold, design: .rounded))
             Text(summary)
