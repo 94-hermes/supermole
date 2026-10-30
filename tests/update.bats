@@ -2454,6 +2454,96 @@ SCRIPT
     [ "$status" -eq 0 ]
 }
 
+@test "fork detection reads only the install receipt" {
+    run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/manage/update.sh"
+SCRIPT_DIR="$HOME/cfg"
+mkdir -p "$SCRIPT_DIR"
+if is_fork_install; then echo "no receipt read as fork"; exit 1; fi
+printf 'CHANNEL=stable\n' > "$SCRIPT_DIR/install_channel"
+if is_fork_install; then echo "upstream receipt read as fork"; exit 1; fi
+printf 'CHANNEL=stable\nFORK_CHECKOUT=%s\n' "$HOME/my clone" > "$SCRIPT_DIR/install_channel"
+is_fork_install || { echo "fork receipt not detected"; exit 1; }
+[[ "$(get_fork_checkout)" == "$HOME/my clone" ]] || { echo "checkout path changed"; exit 1; }
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "fork update refuses before download or authorization for stable and nightly" {
+    for args in 'false false' 'true false' 'false true'; do
+        rm -f "$HOME/download-called" "$HOME/auth-called"
+        run env UPDATE_ARGS="$args" /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+SCRIPT_DIR="$HOME/cfg"
+mkdir -p "$SCRIPT_DIR" "$HOME/bin"
+printf 'CHANNEL=stable\nFORK_CHECKOUT=%s\n' "$HOME/my clone" > "$SCRIPT_DIR/install_channel"
+touch "$HOME/bin/mole"
+MOLE_ENTRY_SCRIPT="$HOME/bin/mole"
+curl() { touch "$HOME/download-called"; return 97; }
+ensure_sudo_session() { touch "$HOME/auth-called"; return 97; }
+# Deliberate splitting of this fixed pair of boolean fixture arguments.
+update_mole $UPDATE_ARGS
+SCRIPT
+        [ "$status" -eq 1 ] || { echo "$output"; return 1; }
+        [[ "$output" == *"installed from the Airkul fork at $HOME/my clone"* ]] || { echo "$output"; return 1; }
+        [[ "$output" == *"cd $HOME/my\\ clone && git pull && make build && ./install.sh --prefix $HOME/bin"* ]] || { echo "$output"; return 1; }
+        [ ! -e "$HOME/download-called" ] || return 1
+        [ ! -e "$HOME/auth-called" ] || return 1
+    done
+}
+
+@test "fork update command adds --prefix only outside the default install directory" {
+    run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+SCRIPT_DIR="$HOME/cfg"
+mkdir -p "$SCRIPT_DIR"
+printf 'CHANNEL=stable\nFORK_CHECKOUT=%s\n' "$HOME/clone" > "$SCRIPT_DIR/install_channel"
+default_steps=$(_update_refuse_fork_install "$MOLE_DEFAULT_INSTALL_DIR" 2>&1)
+[[ "$default_steps" == *"cd $HOME/clone && git pull && make build && ./install.sh" ]] || { echo "$default_steps"; exit 1; }
+custom_steps=$(_update_refuse_fork_install "$HOME/.local/bin" 2>&1)
+[[ "$custom_steps" == *"./install.sh --prefix $HOME/.local/bin" ]] || { echo "$custom_steps"; exit 1; }
+
+# The printed command must paste back into bash and zsh: pure ASCII under a
+# UTF-8 locale, and a mid-word # escaped for zsh's extendedglob.
+printf 'CHANNEL=stable\nFORK_CHECKOUT=%s\n' "$HOME/Rushdy’s clone" > "$SCRIPT_DIR/install_channel"
+unicode_steps=$(LC_ALL=en_US.UTF-8 _update_refuse_fork_install "$HOME/C# bin" 2>&1 | sed -n '2p')
+unicode_steps=${unicode_steps#*fork: }
+if printf '%s' "$unicode_steps" | LC_ALL=C grep -q '[^ -~]'; then echo "non-ASCII command: $unicode_steps"; exit 1; fi
+[[ "$unicode_steps" == *'Rushdy\342\200\231s clone'* ]] || { echo "path not octal-quoted: $unicode_steps"; exit 1; }
+[[ "$unicode_steps" == *'C\#\ bin'* ]] || { echo "# not escaped: $unicode_steps"; exit 1; }
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "fork install hides upstream update notices without changing the shared cache" {
+    run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.59.0
+mkdir -p "$HOME/.cache/mole" "$HOME/cfg"
+notice="$HOME/.cache/mole/update_message"
+printf '%s\n' 'Update 9.9.9 available, run mo update' > "$notice"
+SCRIPT_DIR="$HOME/cfg"
+printf 'CHANNEL=stable\nFORK_CHECKOUT=%s\n' "$HOME/clone" > "$SCRIPT_DIR/install_channel"
+curl() { touch "$HOME/download-called"; return 97; }
+check_for_updates
+[[ -z "$(read_update_message_cache "$notice")" ]] || exit 1
+[[ "$(cat "$notice")" == 'Update 9.9.9 available, run mo update' ]] || exit 1
+[[ ! -e "$HOME/download-called" ]] || exit 1
+[[ ! -e "$HOME/.cache/mole/version_check" ]] || exit 1
+rm "$SCRIPT_DIR/install_channel"
+mole_update_message_cache_is_current() { return 0; }
+[[ "$(read_update_message_cache "$notice")" == 'Update 9.9.9 available, run mo update' ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ]
+}
+
 @test "system proxy lookup prefers HTTPS, then HTTP, then SOCKS, and rejects malformed hosts" {
  run env -u https_proxy -u HTTPS_PROXY -u all_proxy -u ALL_PROXY /bin/bash <<'SCRIPT'
 set -euo pipefail

@@ -438,26 +438,43 @@ else
             mkdir -p "$install_test_home"
         fi
     fi
-    if [[ -z "$install_test_home" ]]; then
-        :
-    else
+    install_test_source=""
+    install_test_log=""
+    if [[ -n "$install_test_home" ]]; then
         install_test_prefix="$install_test_home/mole-bin"
+        install_test_log="$install_test_home/install.log"
+        # A clone of the fork installs the analyze and status binaries it
+        # built (install.sh require_local_binaries), so install from a copy of
+        # this checkout that holds the test builds, never from the checkout's
+        # own bin/, which a fresh clone or worktree has not built.
+        [[ -n "${MOLE_TEST_ANALYZE_BIN:-}" ]] || prepare_go_test_helpers
+        if [[ -n "${MOLE_TEST_ANALYZE_BIN:-}" && -n "${MOLE_TEST_STATUS_BIN:-}" ]]; then
+            install_test_source="$install_test_home/source"
+            if ! mkdir -p "$install_test_source/bin" ||
+                ! cp -R mole mo install.sh lib README.md LICENSE "$install_test_source/" ||
+                ! cp bin/*.sh "$install_test_source/bin/" ||
+                ! cp "$MOLE_TEST_ANALYZE_BIN" "$install_test_source/bin/analyze-go" ||
+                ! cp "$MOLE_TEST_STATUS_BIN" "$install_test_source/bin/status-go"; then
+                printf '%s\n' "Could not stage a copy of the checkout in $install_test_source" > "$install_test_log"
+                install_test_source=""
+            fi
+        fi
     fi
     if [[ -z "$install_test_home" ]]; then
         :
-    elif HOME="$install_test_home" \
-        XDG_CONFIG_HOME="$install_test_home/.config" \
-        XDG_CACHE_HOME="$install_test_home/.cache" \
-        MO_NO_OPLOG=1 \
-        ./install.sh --prefix "$install_test_prefix" > /dev/null 2>&1; then
-        if [[ -f "$install_test_prefix/mole" ]]; then
-            printf '%b' "${GREEN}${ICON_SUCCESS} Installation test passed${NC}\n"
-        else
-            printf '%b' "${RED}${ICON_ERROR} Installation test failed${NC}\n"
-            FAILED=$((FAILED + 1))
-        fi
+    elif [[ -z "${MOLE_TEST_ANALYZE_BIN:-}" || -z "${MOLE_TEST_STATUS_BIN:-}" ]]; then
+        printf '%b' "${YELLOW}${ICON_WARNING} Installation test skipped, Go is needed to build the analyze and status binaries${NC}\n"
+    elif [[ -n "$install_test_source" ]] &&
+        HOME="$install_test_home" \
+            XDG_CONFIG_HOME="$install_test_home/.config" \
+            XDG_CACHE_HOME="$install_test_home/.cache" \
+            MO_NO_OPLOG=1 \
+            "$install_test_source/install.sh" --prefix "$install_test_prefix" > "$install_test_log" 2>&1 &&
+        [[ -f "$install_test_prefix/mole" ]]; then
+        printf '%b' "${GREEN}${ICON_SUCCESS} Installation test passed${NC}\n"
     else
         printf '%b' "${RED}${ICON_ERROR} Installation test failed${NC}\n"
+        [[ -f "$install_test_log" ]] && cat "$install_test_log"
         FAILED=$((FAILED + 1))
     fi
     if [[ -n "$install_test_prefix" ]]; then

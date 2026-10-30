@@ -160,6 +160,9 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="$HOME/.config/mole"
 SOURCE_DIR=""
 SOURCE_COMMIT_HASH=""
+# Set only when this installer runs from a clone of the Airkul fork, never for
+# a downloaded source: the receipt records it so mo update can point there.
+FORK_CHECKOUT_DIR=""
 INSTALL_LOCK_PATH=""
 INSTALL_LOCK_CONTROL=""
 INSTALL_LOCK_HOLDER_PID=""
@@ -702,6 +705,7 @@ resolve_source_dir() {
         script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         if [[ -f "$script_dir/mole" ]]; then
             SOURCE_DIR="$script_dir"
+            FORK_CHECKOUT_DIR="$script_dir"
             return 0
         fi
     fi
@@ -1070,9 +1074,15 @@ write_install_channel_metadata() {
     local channel="$1"
     local commit_hash="${2:-}"
     local install_receipt="${3:-}"
+    local fork_checkout="${4:-}"
     local metadata_file="$CONFIG_DIR/install_channel"
 
     if [[ -n "$install_receipt" && ! "$install_receipt" =~ ^(heal|update)-[0-9]+-[0-9]+-[0-9]+$ ]]; then
+        return 1
+    fi
+    # The receipt is one KEY=value per line; a path with a line break would
+    # forge the lines after it.
+    if [[ "$fork_checkout" == *$'\n'* || "$fork_checkout" == *$'\r'* ]]; then
         return 1
     fi
 
@@ -1090,6 +1100,9 @@ write_install_channel_metadata() {
         fi
         if [[ -n "$install_receipt" ]]; then
             printf 'INSTALL_RECEIPT=%s\n' "$install_receipt"
+        fi
+        if [[ -n "$fork_checkout" ]]; then
+            printf 'FORK_CHECKOUT=%s\n' "$fork_checkout"
         fi
     } > "$tmp_file" || {
         rm -f "$tmp_file" 2> /dev/null || true
@@ -1713,10 +1726,39 @@ homebrew_owns_mole() {
     return 1
 }
 
+# Quotes a path for a command the user copies into bash or zsh. The C locale,
+# local to this function, makes bash 3.2 %q escape every non-ASCII byte as
+# octal (a UTF-8 locale leaves lead bytes raw, which no terminal pastes back
+# intact), and an escaped # keeps zsh's extendedglob from reading a mid-word #
+# as a glob operator.
+quote_for_paste() {
+    local LC_ALL=C
+    local quoted
+    printf -v quoted '%q' "$1"
+    [[ "$quoted" == \$\'* ]] || quoted=${quoted//\#/\\#}
+    printf '%s\n' "$quoted"
+}
+
+# A clone of the fork installs the analyzer it built. Without one, the
+# release download below would fetch upstream's binary for the same version
+# and silently drop the fork's analyzer changes.
+require_local_binaries() {
+    [[ -n "$FORK_CHECKOUT_DIR" ]] || return 0
+    local binary_name
+    for binary_name in analyze status; do
+        if [[ ! -f "$FORK_CHECKOUT_DIR/bin/${binary_name}-go" ]]; then
+            log_error "This checkout has no built ${binary_name} binary, and upstream's would replace the fork's"
+            log_error "Build it, then retry: cd $(quote_for_paste "$FORK_CHECKOUT_DIR") && make build && ./install.sh"
+            return 1
+        fi
+    done
+}
+
 # Main install/update flows
 perform_install() {
     check_requirements
     resolve_source_dir
+    require_local_binaries || exit 1
     local source_version
     source_version="$(get_source_version || true)"
 
@@ -1741,7 +1783,7 @@ perform_install() {
     if [[ "$install_channel" == "nightly" ]]; then
         commit_hash=$(get_source_commit_hash || true)
     fi
-    if ! write_install_channel_metadata "$install_channel" "$commit_hash" "${MOLE_INSTALL_RECEIPT:-}"; then
+    if ! write_install_channel_metadata "$install_channel" "$commit_hash" "${MOLE_INSTALL_RECEIPT:-}" "$FORK_CHECKOUT_DIR"; then
         log_warning "Could not write install channel metadata"
     fi
 
@@ -1792,6 +1834,7 @@ perform_update() {
     fi
 
     resolve_source_dir
+    require_local_binaries || exit 1
     local target_version
     target_version="$(get_source_version || true)"
 
@@ -1842,7 +1885,7 @@ perform_update() {
     if [[ "$install_channel" == "nightly" ]]; then
         commit_hash=$(get_source_commit_hash || true)
     fi
-    if ! write_install_channel_metadata "$install_channel" "$commit_hash" "${MOLE_INSTALL_RECEIPT:-}"; then
+    if ! write_install_channel_metadata "$install_channel" "$commit_hash" "${MOLE_INSTALL_RECEIPT:-}" "$FORK_CHECKOUT_DIR"; then
         log_warning "Could not write install channel metadata"
     fi
 

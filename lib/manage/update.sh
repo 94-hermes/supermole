@@ -804,6 +804,52 @@ is_nix_install() {
     [[ "${SCRIPT_DIR:-}" == /nix/store/* ]]
 }
 
+# An install of the Airkul fork records the clone it came from (install.sh
+# writes FORK_CHECKOUT into the receipt). Self-update would fetch upstream Mole
+# over it, so a fork install updates from its clone instead, the way a Nix
+# install updates through Nix.
+readonly MOLE_FORK_LABEL="Airkul fork"
+readonly MOLE_FORK_UPDATE_STEPS="git pull && make build && ./install.sh"
+readonly MOLE_DEFAULT_INSTALL_DIR="/usr/local/bin"
+
+get_fork_checkout() {
+    _read_install_channel_field FORK_CHECKOUT
+}
+
+# Silent on an unreadable receipt, like the other notice-path receipt probes.
+is_fork_install() {
+    [[ -n "$(get_fork_checkout 2> /dev/null)" ]]
+}
+
+# Quotes a path for a command the user copies into bash or zsh. The C locale,
+# local to this function, makes bash 3.2 %q escape every non-ASCII byte as
+# octal (a UTF-8 locale leaves lead bytes raw, which no terminal pastes back
+# intact), and an escaped # keeps zsh's extendedglob from reading a mid-word #
+# as a glob operator.
+# install.sh carries the same helper (quote_for_paste): it runs standalone,
+# piped from curl, and cannot source lib/.
+_update_quote_for_paste() {
+    local LC_ALL=C
+    local quoted
+    printf -v quoted '%q' "$1"
+    [[ "$quoted" == \$\'* ]] || quoted=${quoted//\#/\\#}
+    printf '%s\n' "$quoted"
+}
+
+# Names the clone and the exact commands that update it, keeping a custom
+# --prefix so the clone reinstalls where this install lives.
+_update_refuse_fork_install() {
+    local install_dir="$1" checkout steps
+    local review_icon="${ICON_REVIEW:-⊙}"
+    checkout=$(get_fork_checkout 2> /dev/null)
+    steps="cd $(_update_quote_for_paste "$checkout") && $MOLE_FORK_UPDATE_STEPS"
+    if [[ "$install_dir" != "$MOLE_DEFAULT_INSTALL_DIR" ]]; then
+        steps+=" --prefix $(_update_quote_for_paste "$install_dir")"
+    fi
+    log_error "This Mole was installed from the $MOLE_FORK_LABEL at $checkout, and mo update would replace it with upstream Mole"
+    printf '%s To update the fork: %s\n' "$review_icon" "$steps"
+}
+
 get_install_channel() {
     # This install's own receipt wins. install.sh --config can move the config
     # dir, and the launcher records where it went in SCRIPT_DIR, so reading the
@@ -944,6 +990,7 @@ mole_update_message_is_stale() {
 read_update_message_cache() {
     local msg_cache="$1" message=""
     is_nix_install && return 0
+    is_fork_install && return 0
     if mole_update_message_cache_is_current "$msg_cache"; then
         message=$(cat "$msg_cache" 2> /dev/null) || message=""
         if mole_update_message_is_stale "$message"; then
@@ -973,6 +1020,7 @@ _mole_write_update_cache() {
 check_for_updates() {
     local cache_dir="$HOME/.cache/mole" channel key now saved_key="" checked=0 interval=0
     is_nix_install && return 0
+    is_fork_install && return 0
     ensure_user_dir "$cache_dir" || return 0
     # The receipt probes run in the foreground now, so an unreadable receipt
     # must not print sed's diagnostic before the user's command.
@@ -1157,6 +1205,8 @@ show_version() {
     local install_method="Manual"
     if is_nix_install; then
         install_method="Nix"
+    elif is_fork_install; then
+        install_method="$MOLE_FORK_LABEL ($(get_fork_checkout 2> /dev/null))"
     elif is_homebrew_install; then
         install_method="Homebrew"
         # A --HEAD build keeps the release number in VERSION; only its keg
@@ -1280,6 +1330,10 @@ update_mole() (
     local install_dir
     if ! install_dir="$(cd "$(dirname "$mole_path")" && pwd)"; then
         log_error "Unable to resolve current Mole install directory"
+        exit 1
+    fi
+    if is_fork_install; then
+        _update_refuse_fork_install "$install_dir"
         exit 1
     fi
     local latest=""

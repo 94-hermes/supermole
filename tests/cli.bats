@@ -179,6 +179,14 @@ SCRIPT
 	[[ "$output" == *"Install: Manual"* ]]
 }
 
+@test "mole --version names the fork clone a fork install came from" {
+	mkdir -p "$HOME/.config/mole"
+	printf 'CHANNEL=stable\nFORK_CHECKOUT=%s\n' "$HOME/supermole" > "$HOME/.config/mole/install_channel"
+	run env HOME="$HOME" MOLE_HOMEBREW_DETECT_TIMEOUT=1 "$PROJECT_ROOT/mole" --version
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Install: Airkul fork ($HOME/supermole)"* ]] || { echo "$output"; return 1; }
+}
+
 @test "mole --version names the commit of a Homebrew HEAD build" {
 	local prefix keg
 	prefix="$(mktemp -d "${BATS_TEST_TMPDIR}/mole-brew-head.XXXXXX")"

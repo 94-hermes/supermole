@@ -1172,6 +1172,114 @@ EOF
 	[ "$status" -eq 0 ]
 }
 
+@test "install receipt records the fork clone and refuses a path with a line break" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mole_source_installer
+CONFIG_DIR="$HOME/config"
+mkdir -p "$CONFIG_DIR"
+
+write_install_channel_metadata "stable" "" "" "$HOME/my clone" || { echo "WRONG: fork receipt rejected"; exit 1; }
+grep -qx "FORK_CHECKOUT=$HOME/my clone" "$CONFIG_DIR/install_channel" || { echo "WRONG: clone missing"; cat "$CONFIG_DIR/install_channel"; exit 1; }
+
+write_install_channel_metadata "stable" "" || { echo "WRONG: stable write failed"; exit 1; }
+if grep -q '^FORK_CHECKOUT=' "$CONFIG_DIR/install_channel"; then
+	echo "WRONG: a download install kept the fork marker"; exit 1
+fi
+
+for forged in $'/tmp/clone\nCHANNEL=nightly' $'/tmp/clone\rCHANNEL=nightly'; do
+	if write_install_channel_metadata "stable" "" "" "$forged"; then
+		echo "WRONG: line break accepted"; exit 1
+	fi
+done
+grep -qx 'CHANNEL=stable' "$CONFIG_DIR/install_channel" || { echo "WRONG: rejected path changed metadata"; exit 1; }
+if grep -q 'nightly' "$CONFIG_DIR/install_channel"; then
+	echo "WRONG: forged line written"; exit 1
+fi
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "only an installer run from a clone marks the install as the fork" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mole_source_installer
+resolve_source_dir
+[[ "$FORK_CHECKOUT_DIR" == "$PROJECT_ROOT" && "$SOURCE_DIR" == "$PROJECT_ROOT" ]] || { echo "WRONG: clone run not marked: $FORK_CHECKOUT_DIR"; exit 1; }
+
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+	# An installer with no mole beside it (curl | bash, or a copy) takes the
+	# source it was handed and must not mark that source as a clone.
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mkdir -p "$HOME/dl" "$HOME/download"
+cp "$PROJECT_ROOT/install.sh" "$HOME/dl/install.sh"
+touch "$HOME/download/mole"
+mole_source_installer "$HOME/dl/install.sh"
+CLEAN_SOURCE_DIR="$HOME/download"
+resolve_source_dir
+[[ "$SOURCE_DIR" == "$HOME/download" ]] || { echo "WRONG: handed source not used: $SOURCE_DIR"; exit 1; }
+[[ -z "$FORK_CHECKOUT_DIR" ]] || { echo "WRONG: a handed source marked as fork: $FORK_CHECKOUT_DIR"; exit 1; }
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "a clone without built analyzer or status binaries refuses before installing" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mole_source_installer
+clone="$HOME/my clone"
+mkdir -p "$clone/bin"
+FORK_CHECKOUT_DIR="$clone"
+
+if out=$(require_local_binaries 2>&1); then echo "WRONG: no binaries accepted"; exit 1; fi
+[[ "$out" == *"no built analyze binary"* ]] || { echo "WRONG: cause missing: $out"; exit 1; }
+[[ "$out" == *'make build && ./install.sh'* && "$out" == *'my\ clone'* ]] || { echo "WRONG: action missing: $out"; exit 1; }
+[[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 2 ]] || { echo "WRONG: refusal is not one cause and one action: $out"; exit 1; }
+
+touch "$clone/bin/analyze-go"
+if out=$(require_local_binaries 2>&1); then echo "WRONG: missing status accepted"; exit 1; fi
+[[ "$out" == *"no built status binary"* ]] || { echo "WRONG: status cause missing: $out"; exit 1; }
+
+touch "$clone/bin/status-go"
+require_local_binaries || { echo "WRONG: built clone refused"; exit 1; }
+
+# A UTF-8 locale must still print a command that pastes back intact.
+FORK_CHECKOUT_DIR="$HOME/Rushdy’s C# clone"
+mkdir -p "$FORK_CHECKOUT_DIR/bin"
+if out=$(LC_ALL=en_US.UTF-8 require_local_binaries 2>&1); then echo "WRONG: no binaries accepted"; exit 1; fi
+action=$(printf '%s\n' "$out" | sed -n '2p')
+action=${action#*retry: }
+if printf '%s' "$action" | LC_ALL=C grep -q '[^ -~]'; then echo "WRONG: non-ASCII bytes in the command: $action"; exit 1; fi
+[[ "$action" == *"\$'"* && "$action" == *'\342\200\231'* ]] || { echo "WRONG: path not octal-quoted: $action"; exit 1; }
+
+rm "$clone/bin/analyze-go" "$clone/bin/status-go"
+FORK_CHECKOUT_DIR=""
+require_local_binaries || { echo "WRONG: a download install was held to clone binaries"; exit 1; }
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "install and update check the clone's binaries before writing anything" {
+	run awk '
+        /^perform_install\(\) \{/ { in_fn = "install"; next }
+        /^perform_update\(\) \{/ { in_fn = "update"; next }
+        in_fn != "" && /^}/ { in_fn = ""; next }
+        in_fn != "" && /^    resolve_source_dir$/ { resolved[in_fn] = 1; next }
+        in_fn != "" && /^    require_local_binaries \|\| exit 1$/ { if (resolved[in_fn] && !wrote[in_fn]) checked[in_fn] = 1; next }
+        in_fn != "" && /create_directories|install_files|acquire_install_lock/ { wrote[in_fn] = 1 }
+        END { exit (checked["install"] && checked["update"]) ? 0 : 1 }
+    ' "$PROJECT_ROOT/install.sh"
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "main source archives are pinned when a commit is known" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
