@@ -22,12 +22,14 @@ if [[ -n "${NO_COLOR:-}" ]]; then
     BLUE=''
     YELLOW=''
     RED=''
+    PURPLE=''
     NC=''
 else
     GREEN='\033[0;32m'
     BLUE='\033[0;34m'
     YELLOW='\033[1;33m'
     RED='\033[0;31m'
+    PURPLE='\033[1;35m'
     NC='\033[0m'
 fi
 
@@ -162,6 +164,10 @@ CONFIG_DIR="$HOME/.config/mole"
 # against: the Airkul fork. lib/manage/update.sh names the same repository
 # (MOLE_REPO_SLUG there), so mo update and this installer never mix sources.
 MOLE_REPO_SLUG="94-hermes/supermole"
+INSTALL_PRODUCT_NAME="supermole"
+INSTALL_TAGLINE="Mole, avec une IA qui t'explique ton disque"
+# Set by check_requirements once sw_vers answered, for the system line.
+INSTALL_MACOS_VERSION=""
 SOURCE_DIR=""
 SOURCE_COMMIT_HASH=""
 # Set only when this installer runs from a clone of the Airkul fork, never for
@@ -730,10 +736,14 @@ resolve_source_dir() {
 
     local branch="${MOLE_VERSION:-}"
     if [[ -z "$branch" ]]; then
+        # The API and ls-remote lookups can take several seconds with nothing
+        # else on screen, which reads as a hang.
+        start_line_spinner "Recherche de la dernière version..."
         branch="$(get_latest_release_tag || true)"
-    fi
-    if [[ -z "$branch" ]]; then
-        branch="$(get_latest_release_tag_from_git || true)"
+        if [[ -z "$branch" ]]; then
+            branch="$(get_latest_release_tag_from_git || true)"
+        fi
+        stop_line_spinner
     fi
     if [[ -z "$branch" ]]; then
         # Both release-tag lookups failed (typically GitHub API rate limits
@@ -773,6 +783,7 @@ resolve_source_dir() {
 
                 if [[ -n "$extracted_dir" && -f "$extracted_dir/mole" ]]; then
                     SOURCE_DIR="$extracted_dir"
+                    log_success "${INSTALL_PRODUCT_NAME} ${branch} téléchargé"
                     return 0
                 fi
             fi
@@ -812,6 +823,7 @@ resolve_source_dir() {
             stop_line_spinner
             SOURCE_DIR="$tmp/mole"
             SOURCE_COMMIT_HASH=$(git -C "$SOURCE_DIR" rev-parse HEAD 2> /dev/null || true)
+            log_success "${INSTALL_PRODUCT_NAME} ${branch} téléchargé"
             return 0
         fi
     fi
@@ -1239,6 +1251,7 @@ check_requirements() {
         log_error "Verify sw_vers works, then retry the installation"
         exit 1
     fi
+    INSTALL_MACOS_VERSION="$macos_version"
     local macos_major="${macos_version%%.*}"
     macos_major=$((10#$macos_major))
     if [[ $macos_major -lt $minimum_macos_major ]]; then
@@ -1653,6 +1666,26 @@ setup_path() {
     fi
 }
 
+# The fork's welcome, for someone watching a fresh install. mo update captures
+# this installer's output and prints it back, so it shows on a terminal only;
+# printf keeps the block art away from echo -e escape parsing.
+print_install_banner() {
+    [[ ${VERBOSE} -eq 1 && -t 1 ]] || return 0
+    printf "${PURPLE}%s${NC} ${GREEN}%s${NC}\n" "▄▀▀ █ █ █▀█ █▀▀ █▀█" "█▄ ▄█ █▀█ █   █▀▀"
+    printf "${PURPLE}%s${NC} ${GREEN}%s${NC}\n" "▄▄▀ ▀▄▀ █▀▀ ██▄ █▀▄" "█ ▀ █ █▄█ █▄▄ ██▄"
+    printf '%s\n\n' "$INSTALL_TAGLINE"
+}
+
+# Names the Mac being installed on. hw.optional.arm64 stays 1 under Rosetta,
+# where uname -m would report an Intel Mac.
+installer_system_summary() {
+    local chip="Intel"
+    if [[ "$(/usr/sbin/sysctl -n hw.optional.arm64 2> /dev/null)" == "1" ]]; then
+        chip="Apple Silicon"
+    fi
+    printf 'macOS %s · %s\n' "$INSTALL_MACOS_VERSION" "$chip"
+}
+
 print_usage_summary() {
     local action="$1"
     local new_version="$2"
@@ -1671,15 +1704,22 @@ print_usage_summary() {
 
     echo ""
 
-    local message="Mole ${action} successfully"
-
-    if [[ "$action" == "updated" && -n "$previous_version" && -n "$new_version" && "$previous_version" != "$new_version" ]]; then
-        message+=", ${previous_version} -> ${new_version}"
+    local message="Prêt ! ${INSTALL_PRODUCT_NAME} est installé."
+    if [[ "$action" == "updated" ]]; then
+        message="${INSTALL_PRODUCT_NAME} est à jour."
+        if [[ -n "$previous_version" && -n "$new_version" && "$previous_version" != "$new_version" ]]; then
+            message="${INSTALL_PRODUCT_NAME} est passé de ${previous_version} à ${new_version}."
+        fi
     elif [[ -n "$new_version" ]]; then
-        message+=", version ${new_version}"
+        message="Prêt ! ${INSTALL_PRODUCT_NAME} ${new_version} est installé."
+    fi
+    local mo_command="mo"
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        mo_command="$INSTALL_DIR/mo"
     fi
 
     log_confirm "$message"
+    printf "  Tape  ${GREEN}%s${NC}  pour commencer, ou  ${GREEN}%s${NC}  pour explorer ton disque.\n" "$mo_command" "$mo_command analyze"
 
     echo ""
     echo "Usage:"
@@ -1760,7 +1800,9 @@ require_local_binaries() {
 
 # Main install/update flows
 perform_install() {
+    print_install_banner
     check_requirements
+    log_success "$(installer_system_summary)"
     resolve_source_dir
     require_local_binaries || exit 1
     local source_version

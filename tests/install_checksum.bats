@@ -1858,3 +1858,73 @@ EOF
 	[[ "$output" == *"NEW_TAG_COUNTS=2,2"* ]] || return 1
 	[[ "$output" == *"TAMPER_REJECTED=yes"* ]] || return 1
 }
+
+@test "the installer banner and closing summary show on a terminal only" {
+	local screen="$BATS_TEST_TMPDIR/screen.sh"
+	cat > "$screen" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+opts="$(set +o)"
+# shellcheck source=/dev/null
+source "$PROJECT_ROOT/install.sh"
+eval "$opts"
+INSTALL_MACOS_VERSION="26.1"
+print_install_banner
+INSTALL_DIR="$HOME/bin"
+print_usage_summary installed 1.65.0
+EOF
+	chmod +x "$screen"
+
+	# Captured, as mo update captures the installer: nothing to show.
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" "$screen"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[ -z "$output" ] || { echo "banner or summary leaked into captured output: $output"; return 1; }
+
+	# A terminal gets the banner, the tagline and the French closing lines.
+	run script -q "$BATS_TEST_TMPDIR/tty.out" env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" "$screen"
+	[ "$status" -eq 0 ] || { cat "$BATS_TEST_TMPDIR/tty.out"; return 1; }
+	local shown
+	shown=$(tr -d '\r' < "$BATS_TEST_TMPDIR/tty.out")
+	[[ "$shown" == *"▄▀▀ █ █ █▀█ █▀▀ █▀█"* && "$shown" == *"█ ▀ █ █▄█ █▄▄ ██▄"* ]] || { echo "$shown"; return 1; }
+	[[ "$shown" == *"Mole, avec une IA qui t'explique ton disque"* ]] || { echo "$shown"; return 1; }
+	[[ "$shown" == *"Prêt ! supermole 1.65.0 est installé."* ]] || { echo "$shown"; return 1; }
+	[[ "$shown" == *"$HOME/bin/mo"*"pour commencer"* ]] || { echo "$shown"; return 1; }
+	# mo update reads "version X" and "-> X" out of installer output.
+	[[ "$shown" != *"version 1.65.0"* && "$shown" != *"-> "* ]] || { echo "$shown"; return 1; }
+}
+
+@test "the installer banner stays plain under NO_COLOR" {
+	local screen="$BATS_TEST_TMPDIR/screen.sh"
+	cat > "$screen" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+opts="$(set +o)"
+# shellcheck source=/dev/null
+source "$PROJECT_ROOT/install.sh"
+eval "$opts"
+print_install_banner
+EOF
+	chmod +x "$screen"
+	run script -q "$BATS_TEST_TMPDIR/tty.out" env NO_COLOR=1 PROJECT_ROOT="$PROJECT_ROOT" "$screen"
+	[ "$status" -eq 0 ] || { cat "$BATS_TEST_TMPDIR/tty.out"; return 1; }
+	if LC_ALL=C grep -q $'\033\\[' "$BATS_TEST_TMPDIR/tty.out"; then
+		echo "NO_COLOR banner carries escape sequences"
+		return 1
+	fi
+	grep -q "▄▄▀ ▀▄▀ █▀▀ ██▄ █▀▄" "$BATS_TEST_TMPDIR/tty.out" || { cat "$BATS_TEST_TMPDIR/tty.out"; return 1; }
+}
+
+@test "the system line names macOS and the chip, and a clone install claims no download" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mole_source_installer
+INSTALL_MACOS_VERSION="26.1"
+summary=$(installer_system_summary)
+[[ "$summary" =~ ^macOS\ 26\.1\ ·\ (Apple\ Silicon|Intel)$ ]] || { echo "WRONG: $summary"; exit 1; }
+
+out=$(resolve_source_dir)
+[[ "$out" != *"téléchargé"* ]] || { echo "WRONG: a clone install reported a download: $out"; exit 1; }
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
