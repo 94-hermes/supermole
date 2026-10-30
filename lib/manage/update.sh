@@ -17,6 +17,11 @@ if [[ -n "${MOLE_MANAGE_UPDATE_LOADED:-}" ]]; then
 fi
 readonly MOLE_MANAGE_UPDATE_LOADED=1
 
+# The GitHub repository self-update reads releases from and fetches the
+# installer of: the Airkul fork. install.sh names the same repository
+# (MOLE_REPO_SLUG there); tests/update.bats checks the two agree.
+readonly MOLE_REPO_SLUG="94-hermes/supermole"
+
 curl_download_with_retry() {
     local url="$1"
     local output_file="$2"
@@ -489,7 +494,7 @@ _update_self_heal_reinstall() {
         heal_output=$(
             set -o pipefail
             curl -fsSL --connect-timeout 10 --max-time 60 \
-                "https://raw.githubusercontent.com/tw93/mole/main/install.sh" |
+                "https://raw.githubusercontent.com/${MOLE_REPO_SLUG}/main/install.sh" |
                 MOLE_ASSUME_SUDO_AUTH="$assume_sudo" MOLE_VERSION="$update_ref" \
                     MOLE_INSTALL_COMMIT="$install_commit" MOLE_INSTALL_RECEIPT="$install_receipt" \
                     bash -s -- --prefix "$install_dir" --config "$config_dir" 2>&1
@@ -501,7 +506,7 @@ _update_self_heal_reinstall() {
         heal_output=$(
             set -o pipefail
             wget --timeout=10 --tries=3 -qO- \
-                "https://raw.githubusercontent.com/tw93/mole/main/install.sh" |
+                "https://raw.githubusercontent.com/${MOLE_REPO_SLUG}/main/install.sh" |
                 MOLE_ASSUME_SUDO_AUTH="$assume_sudo" MOLE_VERSION="$update_ref" \
                     MOLE_INSTALL_COMMIT="$install_commit" MOLE_INSTALL_RECEIPT="$install_receipt" \
                     bash -s -- --prefix "$install_dir" --config "$config_dir" 2>&1
@@ -527,8 +532,8 @@ _update_print_manual_reinstall() {
     printf -v quoted_ref '%q' "$update_ref"
     printf -v quoted_install_dir '%q' "$install_dir"
     printf -v quoted_config_dir '%q' "$config_dir"
-    printf '%s Reinstall manually: curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | MOLE_VERSION=%s bash -s -- --prefix %s --config %s\n' \
-        "${ICON_REVIEW}" "$quoted_ref" "$quoted_install_dir" "$quoted_config_dir"
+    printf '%s Reinstall manually: curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | MOLE_VERSION=%s bash -s -- --prefix %s --config %s\n' \
+        "${ICON_REVIEW}" "$MOLE_REPO_SLUG" "$quoted_ref" "$quoted_install_dir" "$quoted_config_dir"
 }
 
 # Version discovery must report "unknown" by returning empty, never by failing.
@@ -584,9 +589,9 @@ mole_use_system_proxy_if_unset() {
 get_latest_version() {
     local location version
     location=$(curl -fsSLI --connect-timeout "${MOLE_LOOKUP_CONNECT_TIMEOUT:-2}" --max-time "${MOLE_LOOKUP_MAX_TIME:-3}" -o /dev/null -w '%{url_effective}' \
-        "https://github.com/tw93/Mole/releases/latest" 2> /dev/null || true)
+        "https://github.com/${MOLE_REPO_SLUG}/releases/latest" 2> /dev/null || true)
     case "$location" in
-        https://github.com/tw93/[Mm]ole/releases/tag/[Vv]*) version="${location##*/}" ;;
+        "https://github.com/${MOLE_REPO_SLUG}/releases/tag/"[Vv]*) version="${location##*/}" ;;
         *) return 0 ;;
     esac
     version="${version#[Vv]}"
@@ -597,7 +602,7 @@ get_latest_version() {
 get_latest_version_from_github() {
     local version
     version=$(curl -fsSL --connect-timeout "${MOLE_LOOKUP_CONNECT_TIMEOUT:-2}" --max-time "${MOLE_LOOKUP_MAX_TIME:-3}" \
-        "https://api.github.com/repos/tw93/mole/releases/latest" 2> /dev/null |
+        "https://api.github.com/repos/${MOLE_REPO_SLUG}/releases/latest" 2> /dev/null |
         /usr/bin/plutil -extract tag_name raw -o - - 2> /dev/null || true)
     version="${version#[Vv]}"
     [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && printf '%s\n' "$version"
@@ -645,7 +650,7 @@ get_latest_version_from_git() {
         git -c credential.helper= -c core.askPass=/usr/bin/false \
         -c protocol.allow=never -c protocol.https.allow=always \
         -c http.sslVerify=true -C / \
-        ls-remote --tags --refs https://github.com/tw93/mole.git \
+        ls-remote --tags --refs "https://github.com/${MOLE_REPO_SLUG}.git" \
         2> /dev/null); then
         tag=$(printf '%s\n' "$response" |
             awk -F/ '{print $NF}' |
@@ -896,10 +901,10 @@ get_latest_commit_from_github() {
     local sha=""
     if command -v curl > /dev/null 2>&1; then
         response=$(curl -fsSL --connect-timeout "${MOLE_LOOKUP_CONNECT_TIMEOUT:-2}" --max-time "${MOLE_LOOKUP_MAX_TIME:-3}" \
-            "https://api.github.com/repos/tw93/mole/commits/main" 2> /dev/null || true)
+            "https://api.github.com/repos/${MOLE_REPO_SLUG}/commits/main" 2> /dev/null || true)
     elif command -v wget > /dev/null 2>&1; then
         response=$(wget --timeout="${MOLE_LOOKUP_MAX_TIME:-3}" --tries=1 -qO- \
-            "https://api.github.com/repos/tw93/mole/commits/main" 2> /dev/null || true)
+            "https://api.github.com/repos/${MOLE_REPO_SLUG}/commits/main" 2> /dev/null || true)
     fi
     sha=$(printf '%s\n' "$response" |
         grep '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]\{40\}"' | head -1 | sed -E 's/.*"sha"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/') || sha=""
@@ -942,7 +947,7 @@ get_latest_commit_from_github() {
             git -c credential.helper= -c core.askPass=/usr/bin/false \
             -c protocol.allow=never -c protocol.https.allow=always \
             -c http.sslVerify=true -C / \
-            ls-remote https://github.com/tw93/mole.git refs/heads/main \
+            ls-remote "https://github.com/${MOLE_REPO_SLUG}.git" refs/heads/main \
             2> /dev/null); then
             sha=$(printf '%s\n' "$response" |
                 awk '$2 == "refs/heads/main" { print $1; exit }')
@@ -1438,7 +1443,7 @@ update_mole() (
     if [[ "$nightly_update" != "true" ]]; then
         installer_ref="V${latest#V}"
     fi
-    local installer_url="https://raw.githubusercontent.com/tw93/mole/${installer_ref}/install.sh"
+    local installer_url="https://raw.githubusercontent.com/${MOLE_REPO_SLUG}/${installer_ref}/install.sh"
     local tmp_installer
     tmp_installer="$(mktemp_file)" || {
         log_error "Update failed"

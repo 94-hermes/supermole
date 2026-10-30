@@ -158,6 +158,10 @@ safe_rm() {
 # Install defaults
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="$HOME/.config/mole"
+# The GitHub repository this installer downloads from and verifies releases
+# against: the Airkul fork. lib/manage/update.sh names the same repository
+# (MOLE_REPO_SLUG there), so mo update and this installer never mix sources.
+MOLE_REPO_SLUG="94-hermes/supermole"
 SOURCE_DIR=""
 SOURCE_COMMIT_HASH=""
 # Set only when this installer runs from a clone of the Airkul fork, never for
@@ -675,7 +679,7 @@ get_remote_main_commit_hash() {
     local response=""
     local commit_hash=""
     response=$(curl -fsSL --connect-timeout 3 --max-time 5 \
-        "https://api.github.com/repos/tw93/mole/commits/main" 2> /dev/null || true)
+        "https://api.github.com/repos/${MOLE_REPO_SLUG}/commits/main" 2> /dev/null || true)
     commit_hash=$(printf '%s\n' "$response" |
         sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([a-f0-9]\{40\}\)".*/\1/p' | head -1)
     [[ "$commit_hash" =~ ^[0-9a-f]{40}$ ]] || return 1
@@ -687,11 +691,11 @@ source_archive_url() {
     local source_commit="${2:-}"
 
     if [[ "$branch" == "main" && "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
-        printf 'https://github.com/tw93/mole/archive/%s.tar.gz\n' "$source_commit"
+        printf 'https://github.com/%s/archive/%s.tar.gz\n' "$MOLE_REPO_SLUG" "$source_commit"
     elif [[ "$branch" == "main" || "$branch" == "dev" ]]; then
-        printf 'https://github.com/tw93/mole/archive/refs/heads/%s.tar.gz\n' "$branch"
+        printf 'https://github.com/%s/archive/refs/heads/%s.tar.gz\n' "$MOLE_REPO_SLUG" "$branch"
     else
-        printf 'https://github.com/tw93/mole/archive/refs/tags/%s.tar.gz\n' "$branch"
+        printf 'https://github.com/%s/archive/refs/tags/%s.tar.gz\n' "$MOLE_REPO_SLUG" "$branch"
     fi
 }
 
@@ -789,7 +793,7 @@ resolve_source_dir() {
         local clone_succeeded=false
         if [[ -n "$source_commit" ]]; then
             if git init -q "$tmp/mole" > /dev/null 2>&1 &&
-                git -C "$tmp/mole" remote add origin https://github.com/tw93/mole.git > /dev/null 2>&1 &&
+                git -C "$tmp/mole" remote add origin "https://github.com/${MOLE_REPO_SLUG}.git" > /dev/null 2>&1 &&
                 git -C "$tmp/mole" fetch -q --depth=1 origin "$source_commit" > /dev/null 2>&1 &&
                 git -C "$tmp/mole" checkout -q --detach FETCH_HEAD > /dev/null 2>&1; then
                 clone_succeeded=true
@@ -799,7 +803,7 @@ resolve_source_dir() {
             if [[ "$branch" != "main" ]]; then
                 git_args+=("--branch" "$branch")
             fi
-            if git clone "${git_args[@]}" https://github.com/tw93/mole.git "$tmp/mole" > /dev/null 2>&1; then
+            if git clone "${git_args[@]}" "https://github.com/${MOLE_REPO_SLUG}.git" "$tmp/mole" > /dev/null 2>&1; then
                 clone_succeeded=true
             fi
         fi
@@ -843,7 +847,7 @@ get_latest_release_tag() {
         return 1
     fi
     tag=$(curl -fsSL --connect-timeout 2 --max-time 3 \
-        "https://api.github.com/repos/tw93/mole/releases/latest" 2> /dev/null |
+        "https://api.github.com/repos/${MOLE_REPO_SLUG}/releases/latest" 2> /dev/null |
         sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
     if [[ -z "$tag" || ! "$tag" =~ ^V[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         return 1
@@ -874,7 +878,7 @@ get_latest_release_tag_from_git() {
     # install.sh has no timeout helper, so a stalled transfer is cut off by
     # git's own low-speed limit instead.
     git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 \
-        ls-remote --tags --refs https://github.com/tw93/mole.git 2> /dev/null |
+        ls-remote --tags --refs "https://github.com/${MOLE_REPO_SLUG}.git" 2> /dev/null |
         awk -F/ '{print $NF}' |
         grep -E '^V[0-9]+\.[0-9]+\.[0-9]+$' |
         sort -V |
@@ -894,7 +898,7 @@ normalize_release_tag() {
 
 release_checksums_url() {
     local tag="$1"
-    printf 'https://github.com/tw93/mole/releases/download/%s/SHA256SUMS\n' "$tag"
+    printf 'https://github.com/%s/releases/download/%s/SHA256SUMS\n' "$MOLE_REPO_SLUG" "$tag"
 }
 
 download_release_checksums() {
@@ -927,11 +931,11 @@ verify_release_attestation() {
     fi
 
     # Bind provenance to this exact repository rather than accepting an
-    # attestation from any repository owned by tw93. --deny-self-hosted-runners
+    # attestation from any repository of the same owner. --deny-self-hosted-runners
     # also blocks attestations produced by self-hosted runners, which a repo
     # compromise could otherwise introduce as a sidechannel.
     if gh attestation verify "$file" \
-        --repo tw93/Mole \
+        --repo "$MOLE_REPO_SLUG" \
         --deny-self-hosted-runners \
         > /dev/null 2>&1; then
         return 0
@@ -1400,7 +1404,7 @@ download_binary() {
     local release_tag
     release_tag="$(normalize_release_tag "$version")"
     local asset_name="${binary_name}-darwin-${arch_suffix}"
-    local url="https://github.com/tw93/mole/releases/download/${release_tag}/${asset_name}"
+    local url="https://github.com/${MOLE_REPO_SLUG}/releases/download/${release_tag}/${asset_name}"
 
     # Skip preflight network checks to avoid false negatives.
 
@@ -1437,7 +1441,7 @@ download_binary() {
         fallback_tag=$(get_latest_release_tag_from_git 2> /dev/null || true)
     fi
     if [[ -n "$fallback_tag" && "$fallback_tag" != "$release_tag" ]]; then
-        local fallback_url="https://github.com/tw93/mole/releases/download/${fallback_tag}/${asset_name}"
+        local fallback_url="https://github.com/${MOLE_REPO_SLUG}/releases/download/${fallback_tag}/${asset_name}"
         start_line_spinner "Retrying ${binary_name} from ${fallback_tag}..."
         if curl_download_with_retry "$fallback_url" "$staged_path" 2> /dev/null; then
             if [[ -t 1 ]]; then stop_line_spinner; fi
