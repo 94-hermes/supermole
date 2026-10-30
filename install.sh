@@ -168,6 +168,9 @@ INSTALL_PRODUCT_NAME="supermole"
 INSTALL_TAGLINE="Mole, avec une IA qui t'explique ton disque"
 # Set by check_requirements once sw_vers answered, for the system line.
 INSTALL_MACOS_VERSION=""
+# Absolute so a PATH sysctl cannot answer (.claude/rules/shell.md); tests
+# point it at a stub.
+INSTALL_SYSCTL_BIN="/usr/sbin/sysctl"
 SOURCE_DIR=""
 SOURCE_COMMIT_HASH=""
 # Set only when this installer runs from a clone of the Airkul fork, never for
@@ -889,7 +892,9 @@ get_latest_release_tag_from_git() {
     # same repository, and sort -V ranks V1.60.0-windows above V1.60.0.
     # install.sh has no timeout helper, so a stalled transfer is cut off by
     # git's own low-speed limit instead.
-    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 \
+    # The release lookup spinner redraws every 0.12s, so git must never stop
+    # to ask for credentials it would draw underneath.
+    GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 \
         ls-remote --tags --refs "https://github.com/${MOLE_REPO_SLUG}.git" 2> /dev/null |
         awk -F/ '{print $NF}' |
         grep -E '^V[0-9]+\.[0-9]+\.[0-9]+$' |
@@ -1680,7 +1685,7 @@ print_install_banner() {
 # where uname -m would report an Intel Mac.
 installer_system_summary() {
     local chip="Intel"
-    if [[ "$(/usr/sbin/sysctl -n hw.optional.arm64 2> /dev/null)" == "1" ]]; then
+    if [[ "$("$INSTALL_SYSCTL_BIN" -n hw.optional.arm64 2> /dev/null)" == "1" ]]; then
         chip="Apple Silicon"
     fi
     printf 'macOS %s · %s\n' "$INSTALL_MACOS_VERSION" "$chip"

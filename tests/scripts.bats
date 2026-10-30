@@ -419,7 +419,8 @@ EOF
 
 @test "fork release publishes to no Homebrew formula or tap" {
     run grep -Eq 'update-homebrew-core:|update-personal-tap:|homebrew-tap|homebrew-core|PAT_TOKEN|HOMEBREW_GITHUB_API_TOKEN' "$PROJECT_ROOT/.github/workflows/release.yml"
-    [ "$status" -ne 0 ]
+    # 1, not 2: the file must exist and simply not match.
+    [ "$status" -eq 1 ]
 
     [ ! -e "$PROJECT_ROOT/scripts/update_homebrew_tap_formula.sh" ]
 
@@ -537,7 +538,8 @@ EOF
     run grep -F 'audit_skill_commands.py' "$PROJECT_ROOT/scripts/check.sh"
     [ "$status" -eq 0 ]
     run grep -Eq 'origin windows|MOLE_SKILL_AUDIT_REQUIRE_WINDOWS' "$PROJECT_ROOT/.github/workflows/check.yml"
-    [ "$status" -ne 0 ]
+    # 1, not 2: the file must exist and simply not match.
+    [ "$status" -eq 1 ]
 }
 
 @test "test runner isolates module-loading temp state before sourcing core" {

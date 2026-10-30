@@ -1881,7 +1881,7 @@ EOF
 	[ -z "$output" ] || { echo "banner or summary leaked into captured output: $output"; return 1; }
 
 	# A terminal gets the banner, the tagline and the French closing lines.
-	run script -q "$BATS_TEST_TMPDIR/tty.out" env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" "$screen"
+	run /usr/bin/script -q "$BATS_TEST_TMPDIR/tty.out" env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" "$screen" < /dev/null
 	[ "$status" -eq 0 ] || { cat "$BATS_TEST_TMPDIR/tty.out"; return 1; }
 	local shown
 	shown=$(tr -d '\r' < "$BATS_TEST_TMPDIR/tty.out")
@@ -1905,7 +1905,7 @@ eval "$opts"
 print_install_banner
 EOF
 	chmod +x "$screen"
-	run script -q "$BATS_TEST_TMPDIR/tty.out" env NO_COLOR=1 PROJECT_ROOT="$PROJECT_ROOT" "$screen"
+	run /usr/bin/script -q "$BATS_TEST_TMPDIR/tty.out" env NO_COLOR=1 PROJECT_ROOT="$PROJECT_ROOT" "$screen" < /dev/null
 	[ "$status" -eq 0 ] || { cat "$BATS_TEST_TMPDIR/tty.out"; return 1; }
 	if LC_ALL=C grep -q $'\033\\[' "$BATS_TEST_TMPDIR/tty.out"; then
 		echo "NO_COLOR banner carries escape sequences"
@@ -1914,16 +1914,47 @@ EOF
 	grep -q "▄▄▀ ▀▄▀ █▀▀ ██▄ █▀▄" "$BATS_TEST_TMPDIR/tty.out" || { cat "$BATS_TEST_TMPDIR/tty.out"; return 1; }
 }
 
-@test "the system line names macOS and the chip, and a clone install claims no download" {
+@test "the system line names the chip from hw.optional.arm64" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 mole_source_installer
 INSTALL_MACOS_VERSION="26.1"
-summary=$(installer_system_summary)
-[[ "$summary" =~ ^macOS\ 26\.1\ ·\ (Apple\ Silicon|Intel)$ ]] || { echo "WRONG: $summary"; exit 1; }
+INSTALL_SYSCTL_BIN="$HOME/sysctl"
+printf '#!/bin/bash\necho 1\n' > "$INSTALL_SYSCTL_BIN"
+chmod +x "$INSTALL_SYSCTL_BIN"
+[[ "$(installer_system_summary)" == "macOS 26.1 · Apple Silicon" ]] || { echo "WRONG: $(installer_system_summary)"; exit 1; }
+printf '#!/bin/bash\necho 0\n' > "$INSTALL_SYSCTL_BIN"
+[[ "$(installer_system_summary)" == "macOS 26.1 · Intel" ]] || { echo "WRONG: $(installer_system_summary)"; exit 1; }
+EOF
 
-out=$(resolve_source_dir)
-[[ "$out" != *"téléchargé"* ]] || { echo "WRONG: a clone install reported a download: $out"; exit 1; }
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "a fetched release reports its download and a clone install does not" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mole_source_installer
+resolve_source_dir > "$HOME/clone.out"
+[[ "$SOURCE_DIR" == "$PROJECT_ROOT" && -n "$FORK_CHECKOUT_DIR" ]] || { echo "WRONG: clone branch not taken: $SOURCE_DIR"; exit 1; }
+if grep -q 'téléchargé' "$HOME/clone.out"; then echo "WRONG: a clone install reported a download"; exit 1; fi
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+	# An installer with no mole beside it fetches the tag archive.
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mkdir -p "$HOME/dl" "$HOME/archive/supermole-1.65.0"
+cp "$PROJECT_ROOT/install.sh" "$HOME/dl/install.sh"
+printf 'VERSION="1.65.0"\n' > "$HOME/archive/supermole-1.65.0/mole"
+mole_source_installer "$HOME/dl/install.sh"
+MOLE_VERSION="V1.65.0"
+TMPDIR="$HOME/tmp"
+mkdir -p "$TMPDIR"
+curl_download_with_retry() { tar -czf "$2" -C "$HOME/archive" supermole-1.65.0; }
+resolve_source_dir > "$HOME/fetch.out"
+[[ "$SOURCE_DIR" == */supermole-1.65.0 ]] || { echo "WRONG: archive not used: $SOURCE_DIR"; exit 1; }
+grep -q 'supermole V1.65.0 téléchargé' "$HOME/fetch.out" || { echo "WRONG: no download line"; cat "$HOME/fetch.out"; exit 1; }
 EOF
 
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
