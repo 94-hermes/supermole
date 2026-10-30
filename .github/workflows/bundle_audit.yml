@@ -20,6 +20,8 @@ concurrency:
 jobs:
   audit:
     name: Bundle drift
+    # Upstream's audit files issues on tw93/Mole; the fork has issues off.
+    if: github.repository == 'tw93/Mole'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:

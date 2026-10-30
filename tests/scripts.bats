@@ -328,32 +328,16 @@ EOF
     [ "$status" -eq 0 ]
 }
 
-@test "release workflow keeps the Homebrew Core PR open (#1209)" {
+@test "fork release gates on Check and Validation and ships attested binaries" {
     local workflow="$PROJECT_ROOT/.github/workflows/release.yml"
 
-    run grep -F "Have you followed the [guidelines for contributing]" "$workflow"
+    run grep -F 'required=(Check Validation)' "$workflow"
     [ "$status" -eq 0 ]
-    run grep -F "pulls?state=all&head=tw93:" "$workflow"
+    run grep -F 'actions/attest-build-provenance@' "$workflow"
     [ "$status" -eq 0 ]
-    run grep -F 'PR_STATE" != "open"' "$workflow"
+    run grep -F 'bin/SHA256SUMS' "$workflow"
     [ "$status" -eq 0 ]
-    run grep -F 'core_status=published' "$workflow"
-    [ "$status" -eq 0 ]
-    run grep -F 'core_status=pr-open' "$workflow"
-    [ "$status" -eq 0 ]
-    run grep -F 'url_matches != 1 || sha_matches != 1' "$workflow"
-    [ "$status" -eq 0 ]
-    run grep -F 'already exists; refusing to overwrite it.' "$workflow"
-    [ "$status" -eq 0 ]
-    run grep -F "git push \"--force-with-lease=refs/heads/\${BRANCH}:\" origin \"\$BRANCH\"" "$workflow"
-    [ "$status" -eq 0 ]
-
-    run awk '
-        /name: Update Homebrew formula \(Official Core\)/ { in_step = 1 }
-        in_step && /continue-on-error:/ { found = 1 }
-        in_step && /name: Verify formula updates/ { exit found ? 1 : 0 }
-        END { if (!in_step) exit 1 }
-    ' "$workflow"
+    run grep -F "prerelease: \${{ contains(github.ref_name, '-') }}" "$workflow"
     [ "$status" -eq 0 ]
 }
 
@@ -433,11 +417,8 @@ EOF
     [ "$status" -eq 0 ]
 }
 
-@test "release workflow keeps Homebrew distribution on official core only" {
-    run grep -q 'update-homebrew-core:' "$PROJECT_ROOT/.github/workflows/release.yml"
-    [ "$status" -eq 0 ]
-
-    run grep -Eq 'update-personal-tap:|tw93/homebrew-tap|PAT_TOKEN' "$PROJECT_ROOT/.github/workflows/release.yml"
+@test "fork release publishes to no Homebrew formula or tap" {
+    run grep -Eq 'update-homebrew-core:|update-personal-tap:|homebrew-tap|homebrew-core|PAT_TOKEN|HOMEBREW_GITHUB_API_TOKEN' "$PROJECT_ROOT/.github/workflows/release.yml"
     [ "$status" -ne 0 ]
 
     [ ! -e "$PROJECT_ROOT/scripts/update_homebrew_tap_formula.sh" ]
@@ -552,11 +533,11 @@ EOF
     [[ "$output" == *"fix with: rm -rf $copy && cp -R $skill $copy"* ]] || { echo "$output"; return 1; }
 }
 
-@test "CI checks the published skill against both CLIs" {
+@test "CI checks the published skill without requiring a Windows branch the fork lacks" {
     run grep -F 'audit_skill_commands.py' "$PROJECT_ROOT/scripts/check.sh"
     [ "$status" -eq 0 ]
-    run grep -F 'git fetch --no-tags --depth=1 origin windows' "$PROJECT_ROOT/.github/workflows/check.yml"
-    [ "$status" -eq 0 ]
+    run grep -Eq 'origin windows|MOLE_SKILL_AUDIT_REQUIRE_WINDOWS' "$PROJECT_ROOT/.github/workflows/check.yml"
+    [ "$status" -ne 0 ]
 }
 
 @test "test runner isolates module-loading temp state before sourcing core" {
