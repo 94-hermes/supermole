@@ -3,7 +3,7 @@
 >
 > What this fork changes:
 > - **AI explanations in `mo analyze`**: Claude Code (or Codex) tells you in plain words what a file or folder is and whether it is safe to delete.
-> - **Installs and updates from this repository**: see [Quick Start](#quick-start).
+> - **Installs and updates from this repository**, with a double-click installer: see [Quick Start](#quick-start).
 
 <p align="right"><b>macOS</b> · <a href="https://github.com/tw93/Mole/tree/windows">Windows</a></p>
 
@@ -38,6 +38,10 @@
 This fork runs on macOS 12 or newer, on Intel or Apple Silicon. The AI explanations in `mo analyze` need [Claude Code](https://claude.com/claude-code) (`claude`) or [Codex](https://github.com/openai/codex) (`codex`), installed and signed in.
 
 **Install**
+
+Download [Installer-Supermole.dmg](https://github.com/94-hermes/supermole/releases/latest/download/Installer-Supermole.dmg), open it and double-click **Installer Supermole**: Terminal opens and runs the installer below. The app is not signed by Apple yet, so macOS refuses to open it the first time. Open **System Settings › Privacy & Security**, click **Open Anyway** next to "Installer Supermole" and confirm; it opens normally after that.
+
+Or paste this in Terminal:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/94-hermes/supermole/main/install.sh | bash
