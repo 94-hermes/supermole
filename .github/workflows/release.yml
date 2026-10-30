@@ -55,9 +55,86 @@ jobs:
           path: bin/*-darwin-*
           retention-days: 1
 
+  # Installer-Supermole.dmg: an app that opens Terminal on install.sh, for
+  # people who download a file instead of pasting a command. It is signed ad
+  # hoc until the Apple secrets below exist; then it is signed with Developer
+  # ID, notarized and stapled (scripts/build_installer_dmg.sh).
+  installer:
+    name: Build Installer
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      HAS_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_P12 != '' }}
+      HAS_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_P8 != '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install dmgbuild
+        run: ./scripts/install_dmgbuild.sh "$RUNNER_TEMP/dmgbuild" >> "$GITHUB_PATH"
+
+      - name: Import the Developer ID certificate
+        if: env.HAS_DEVELOPER_ID == 'true'
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$APPLE_DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" \
+            -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          identities=$(security find-identity -v -p codesigning "$keychain")
+          identity=$(printf '%s\n' "$identities" |
+            sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -n 1)
+          if [[ -z "$identity" ]]; then
+            echo "::error::APPLE_DEVELOPER_ID_P12 holds no Developer ID Application identity."
+            printf '%s\n' "$identities"
+            exit 1
+          fi
+          echo "SUPERMOLE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Provide the notarization key
+        if: env.HAS_DEVELOPER_ID == 'true' && env.HAS_NOTARY_KEY == 'true'
+        env:
+          APPLE_NOTARY_KEY_P8: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$APPLE_NOTARY_KEY_P8" > "$RUNNER_TEMP/notary-key.p8"
+          {
+            echo "SUPERMOLE_NOTARY_KEY=$RUNNER_TEMP/notary-key.p8"
+            echo "SUPERMOLE_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
+            echo "SUPERMOLE_NOTARY_ISSUER=$APPLE_NOTARY_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Build Installer-Supermole.dmg
+        run: ./scripts/build_installer_dmg.sh dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installer-dmg
+          path: dist/Installer-Supermole.dmg
+          if-no-files-found: error
+          retention-days: 1
+
   release:
     name: Publish Release
-    needs: build
+    needs: [build, installer]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -103,6 +180,12 @@ jobs:
           pattern: binaries-*
           merge-multiple: true
 
+      - name: Download the dmg installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: installer-dmg
+          path: bin
+
       - name: Display structure of downloaded files
         run: ls -R bin/
 
@@ -123,6 +206,7 @@ jobs:
           subject-path: |
             bin/analyze-darwin-*
             bin/status-darwin-*
+            bin/Installer-Supermole.dmg
             bin/SHA256SUMS
 
       - name: Create Release

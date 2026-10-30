@@ -762,3 +762,82 @@ PYTHON
     run grep -F 'python3 scripts/audit_incidents.py' "$PROJECT_ROOT/.github/workflows/test.yml"
     [ "$status" -eq 0 ]
 }
+
+@test "dmg installer command installs from the repository install.sh names" {
+    local command_file="$PROJECT_ROOT/installer/install-supermole.command"
+    local installer_slug command_slug
+    installer_slug=$(sed -n 's/^MOLE_REPO_SLUG="\(.*\)"$/\1/p' "$PROJECT_ROOT/install.sh")
+    command_slug=$(sed -n 's/^SUPERMOLE_REPO_SLUG="\(.*\)"$/\1/p' "$command_file")
+    [ -n "$installer_slug" ]
+    [ "$command_slug" = "$installer_slug" ]
+    # Without pipefail a failed download pipes nothing into bash, which exits 0.
+    run grep -Fx 'set -o pipefail' "$command_file"
+    [ "$status" -eq 0 ]
+    [ -x "$command_file" ]
+}
+
+@test "dmg installer command reports the install result and removes its copy" {
+    local installer_slug
+    installer_slug=$(sed -n 's/^MOLE_REPO_SLUG="\(.*\)"$/\1/p' "$PROJECT_ROOT/install.sh")
+    # shellcheck disable=SC2016 # The fake's body expands when it runs.
+    mole_test_fake_command curl 'printf "%s\n" "$*" >> "$HOME/curl-args"
+if [[ -n "${FAKE_CURL_STATUS:-}" ]]; then exit "$FAKE_CURL_STATUS"; fi
+printf "%s\n" "${FAKE_INSTALLER:-echo installed}"'
+
+    # Copies carry the launcher's name pattern (commandCopyPattern).
+    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/install-supermole-1.command"
+    run /bin/bash "$HOME/install-supermole-1.command"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"installed"* ]] || return 1
+    [[ "$output" == *"Tu peux fermer cette fenêtre."* ]] || return 1
+    [ ! -e "$HOME/install-supermole-1.command" ]
+    run cat "$HOME/curl-args"
+    [ "$output" = "-fsSL https://raw.githubusercontent.com/${installer_slug}/main/install.sh" ]
+
+    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/install-supermole-2.command"
+    run env FAKE_INSTALLER='exit 3' /bin/bash "$HOME/install-supermole-2.command"
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"L'installation n'a pas abouti"* ]] || return 1
+    [ ! -e "$HOME/install-supermole-2.command" ]
+
+    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/install-supermole-3.command"
+    run env FAKE_CURL_STATUS=22 /bin/bash "$HOME/install-supermole-3.command"
+    [ "$status" -eq 22 ]
+    [[ "$output" == *"L'installation n'a pas abouti"* ]] || return 1
+    [[ "$output" != *"Tu peux fermer"* ]] || return 1
+    [ ! -e "$HOME/install-supermole-3.command" ]
+
+    # Run under its own name, as from a checkout, the script stays.
+    mkdir -p "$HOME/checkout"
+    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/checkout/install-supermole.command"
+    run /bin/bash "$HOME/checkout/install-supermole.command"
+    [ "$status" -eq 0 ]
+    [ -f "$HOME/checkout/install-supermole.command" ]
+}
+
+@test "dmg installer command deletes itself only under the launcher's copy name" {
+    local launcher_pattern
+    launcher_pattern=$(sed -n 's/^[[:space:]]*commandCopyPattern = "\(.*\)"$/\1/p' \
+        "$PROJECT_ROOT/cmd/installer-launcher/main.go")
+    [ "$launcher_pattern" = "install-supermole-*.command" ]
+    run grep -F "    ${launcher_pattern})" "$PROJECT_ROOT/installer/install-supermole.command"
+    [ "$status" -eq 0 ]
+}
+
+@test "fork release builds, checksums and attests the dmg installer" {
+    local workflow="$PROJECT_ROOT/.github/workflows/release.yml"
+
+    # shellcheck disable=SC2016 # Literal workflow text, not shell expansion.
+    run grep -F './scripts/install_dmgbuild.sh "$RUNNER_TEMP/dmgbuild" >> "$GITHUB_PATH"' "$workflow"
+    [ "$status" -eq 0 ]
+    run grep -F './scripts/build_installer_dmg.sh dist' "$workflow"
+    [ "$status" -eq 0 ]
+    run grep -F 'needs: [build, installer]' "$workflow"
+    [ "$status" -eq 0 ]
+    run grep -F 'bin/Installer-Supermole.dmg' "$workflow"
+    [ "$status" -eq 0 ]
+    # The dmg lands in bin/ before the checksum step, which hashes all of bin/.
+    run grep -n -e 'name: Download the dmg installer' -e 'name: Generate release checksums' "$workflow"
+    [[ "${lines[0]}" == *"Download the dmg installer"* ]] || return 1
+    [[ "${lines[1]}" == *"Generate release checksums"* ]] || return 1
+}

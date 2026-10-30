@@ -219,6 +219,12 @@ if command -v bats > /dev/null 2>&1 && [ -d "tests" ]; then
         if command -v zipinfo > /dev/null 2>&1 || command -v unzip > /dev/null 2>&1; then
             zip_list_available=1
         fi
+        dmgbuild_available=0
+        if command -v dmgbuild > /dev/null 2>&1; then
+            dmgbuild_available=1
+        else
+            echo "Skipping tests/dmg_build.bats: dmgbuild is not on PATH (scripts/install_dmgbuild.sh)"
+        fi
 
         TEST_FILES=()
         while IFS= read -r file; do
@@ -230,6 +236,11 @@ if command -v bats > /dev/null 2>&1 && [ -d "tests" ]; then
                     ;;
                 tests/installer_zip.bats)
                     if [[ $zip_available -eq 1 && $zip_list_available -eq 1 ]]; then
+                        TEST_FILES+=("$file")
+                    fi
+                    ;;
+                tests/dmg_build.bats)
+                    if [[ $dmgbuild_available -eq 1 ]]; then
                         TEST_FILES+=("$file")
                     fi
                     ;;

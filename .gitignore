@@ -93,3 +93,6 @@ mole_guidelines.md
 # Nix build output symlinks
 /result
 /result-*
+
+# Python bytecode (installer/ modules imported by render_assets.py and dmgbuild)
+__pycache__/

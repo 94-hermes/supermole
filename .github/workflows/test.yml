@@ -27,6 +27,11 @@ jobs:
         # whole file when fd is missing, which silently hid its 25 cases.
         run: brew install bats-core shellcheck coreutils parallel fd
 
+      - name: Install dmgbuild
+        # Keeps tests/dmg_build.bats, the real build of the dmg installer, in
+        # the run: scripts/test.sh drops it when dmgbuild is not on PATH.
+        run: ./scripts/install_dmgbuild.sh "$RUNNER_TEMP/dmgbuild" >> "$GITHUB_PATH"
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

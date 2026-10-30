@@ -51,7 +51,7 @@ jobs:
 
       - name: Check shell formatting (shfmt -d)
         run: |
-          SHELL_FILES=$(find . -type f \( -name "*.sh" -o -name "mole" \) \
+          SHELL_FILES=$(find . -type f \( -name "*.sh" -o -name "*.command" -o -name "mole" \) \
             -not -path "./.git/*" \
             -not -path "*/node_modules/*" \
             -not -path "*/tests/tmp-*/*" \

@@ -84,7 +84,7 @@ readonly ICON_LIST="•"
 
 echo -e "${BLUE}=== Mole Check, ${MODE} ===${NC}\n"
 
-SHELL_FILES=$(find . -type f \( -name "*.sh" -o -name "mole" \) \
+SHELL_FILES=$(find . -type f \( -name "*.sh" -o -name "*.command" -o -name "mole" \) \
     -not -path "./.git/*" \
     -not -path "*/node_modules/*" \
     -not -path "*/tests/tmp-*/*" \
@@ -165,7 +165,7 @@ fi
 
 echo -e "${YELLOW}4. Running ShellCheck...${NC}"
 if command -v shellcheck > /dev/null 2>&1; then
-    if shellcheck mole install.sh bin/*.sh lib/*/*.sh scripts/*.sh; then
+    if shellcheck mole install.sh bin/*.sh lib/*/*.sh scripts/*.sh installer/*.command; then
         echo -e "${GREEN}${ICON_SUCCESS} ShellCheck passed${NC}\n"
     else
         echo -e "${RED}${ICON_ERROR} ShellCheck failed${NC}\n"
