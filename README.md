@@ -35,27 +35,21 @@
 
 ## Quick Start
 
-This fork requires macOS 12 or newer, on Intel or Apple Silicon, plus Git and Go to build it. The AI explanations in `mo analyze` also need [Claude Code](https://claude.com/claude-code) (`claude`) or [Codex](https://github.com/openai/codex) (`codex`), installed and signed in.
+This fork runs on macOS 12 or newer, on Intel or Apple Silicon. The AI explanations in `mo analyze` need [Claude Code](https://claude.com/claude-code) (`claude`) or [Codex](https://github.com/openai/codex) (`codex`), installed and signed in.
 
 **Install**
 
 ```bash
-brew install go                      # Only if Go is not installed yet
-git clone https://github.com/94-hermes/supermole.git
-cd supermole
-make build
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/94-hermes/supermole/main/install.sh | bash
 ```
 
-`./install.sh` installs this folder's `mo` into `/usr/local/bin`, which may ask for an administrator password. If upstream Mole is installed with Homebrew, remove it first with `brew uninstall --force mole`: the installer stops while it is the active `mo`.
+The installer downloads this fork's latest release, checks its checksums (and its build attestation when the GitHub CLI `gh` is signed in), and installs `mo` into `/usr/local/bin`, which may ask for an administrator password. If upstream Mole is installed with Homebrew, remove it first with `brew uninstall --force mole`: the installer stops while it is the active `mo`.
 
 **Update**
 
 ```bash
-cd supermole && git pull && make build && ./install.sh
+mo update
 ```
-
-`mo update` would install upstream Mole over this fork, so here it prints these commands instead.
 
 **With an AI agent**
 
@@ -82,7 +76,7 @@ mo slim                      # Remove Intel code from universal apps
 
 mo touchid                   # Configure Touch ID for sudo
 mo completion                # Set up shell tab completion
-mo update                    # Show this fork's update commands
+mo update                    # Update to this fork's latest release
 mo remove                    # Remove Mole from system
 mo --help                    # Show help
 mo --version                 # Show installed version
@@ -111,15 +105,28 @@ mo analyze /private/tmp      # Review user-owned temporary directories
 <details>
 <summary><strong>Other install options</strong></summary>
 
-`./install.sh` normally installs to `/usr/local/bin`, which may ask for an administrator password. To install into a user-owned directory instead:
+The installer normally installs to `/usr/local/bin`, which may ask for an administrator password. Install into a user-owned directory if you want future `mo update` runs to stay password-free:
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-./install.sh --prefix "$HOME/.local/bin"
+curl -fsSL https://raw.githubusercontent.com/94-hermes/supermole/main/install.sh | bash -s -- --prefix "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Add the same `PATH` export to `~/.zshrc` or your shell profile for new terminals, and pass the same `--prefix` when you update. Commands that change system-owned files may still request administrator access.
+Add the same `PATH` export to `~/.zshrc` or your shell profile for new terminals. Mole updates the installation you invoked, so it keeps using this directory. Commands that change system-owned files may still request administrator access.
+
+**From source**
+
+Building from a clone needs Git and Go:
+
+```bash
+git clone https://github.com/94-hermes/supermole.git
+cd supermole
+make build
+./install.sh
+```
+
+A clone install updates from the clone, not from releases: `cd supermole && git pull && make build && ./install.sh`, which `mo update` prints for it.
 
 </details>
 
@@ -445,7 +452,7 @@ Removed 5 installers, freed 3.83GB
 Install five launchers for Clean, Uninstall, Optimize, Analyze, and Status:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tw93/Mole/main/scripts/setup-quick-launchers.sh | bash
+curl -fsSL https://raw.githubusercontent.com/94-hermes/supermole/main/scripts/setup-quick-launchers.sh | bash
 ```
 
 The script adds Raycast commands and, when Alfred preferences are present, matching Alfred workflows with the keywords `clean`, `uninstall`, `optimize`, `analyze`, and `status`.

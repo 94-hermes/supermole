@@ -7,6 +7,18 @@ metadata:
 
 # Mole CLI Release Flow
 
+## Fork releases (94-hermes/supermole)
+
+This checkout is the Airkul fork; its releases come from its own `release.yml`, and the upstream channels below (Homebrew core, Nix, curated `tw93/Mole` notes) do not apply.
+
+1. Bump `VERSION=` in `mole` when the fork ships something new; the tag must be exactly `V<VERSION>` (capital `V`, three numbers, no suffix: a `-` makes a prerelease that install and `mo update` ignore).
+2. Push the commit to `main` and wait for **Check** and **Validation** to finish green on that SHA; the release job refuses otherwise.
+3. Push the tag: `git tag V<VERSION> && git push origin V<VERSION>`.
+4. Verify the release has `analyze-darwin-{arm64,amd64}`, `status-darwin-{arm64,amd64}` and `SHA256SUMS`, and `gh attestation verify <asset> --repo 94-hermes/supermole` passes for each.
+5. Smoke-test the one-line install into a temporary prefix and `HOME`, then `mo update` on it (expect "already on latest").
+
+The upstream runbook follows for reference.
+
 Tag-driven flow. The `release.yml` workflow watches `'V*'` tag pushes (capital `V`), builds amd64 and arm64 binaries on macOS, generates `SHA256SUMS`, attaches build provenance, creates the GitHub Release without notes, then opens a Homebrew core PR.
 
 ## Distribution channels
