@@ -1,0 +1,1 @@
+{"schema_version":1,"answers":{"/Users/test/Downloads/old.dmg":{"verdict":"safe","what":"An installer you already used.","if_deleted":"Nothing breaks.","advice":"Delete it.","needs_exploration":false,"explored":false,"provider":"claude","is_dir":false,"mod_time":"2026-10-01T10:00:00Z","answered_at":"2026-10-29T10:00:00Z"}}}

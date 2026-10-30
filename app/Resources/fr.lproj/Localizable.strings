@@ -1,0 +1,91 @@
+/* Supermole, French. Keys are the English text in the Swift sources;
+   scripts/check_app_localization.py fails the build when one is missing. */
+
+/* Spaces */
+"Home" = "Accueil";
+"Clean up" = "Nettoyer";
+"Apps" = "Apps";
+"Disk space" = "Espace disque";
+"History" = "Historique";
+"Settings" = "Réglages";
+"Coming soon" = "Bientôt disponible";
+"Caches, leftovers of deleted apps, installer files, old build folders and system upkeep, previewed before anything goes." = "Caches, restes d'apps supprimées, fichiers d'installation, vieux dossiers de compilation et entretien du système : tout est montré avant d'être supprimé.";
+"Remove apps with everything they leave behind, and slim the ones that carry code your Mac never runs." = "Supprime des apps avec tout ce qu'elles laissent derrière elles, et allège celles qui contiennent du code que ton Mac n'utilise jamais.";
+
+/* First launch */
+"Welcome to Supermole" = "Bienvenue dans Supermole";
+"Supermole needs its engine, the free Mole tool, to clean and analyze your Mac. It installs in a few seconds, for your account only, without an administrator password." = "Supermole a besoin de son moteur, l'outil gratuit Mole, pour nettoyer et analyser ton Mac. Il s'installe en quelques secondes, pour ton compte seulement, sans mot de passe administrateur.";
+"Install" = "Installer";
+"Installing…" = "Installation…";
+"The installer finished, but mo is still missing." = "L'installation s'est terminée, mais le moteur est toujours introuvable.";
+
+/* Home */
+"Reading your Mac…" = "Lecture de ton Mac…";
+"Health" = "Santé";
+"out of 100" = "sur 100";
+"Nothing needs your attention." = "Rien ne demande ton attention.";
+"Running for %@" = "Allumé depuis %@";
+"Storage" = "Stockage";
+"Used" = "Utilisé";
+"Purgeable" = "Récupérable";
+"Free" = "Libre";
+"free" = "libres";
+"%@ in total" = "%@ au total";
+"Unavailable" = "Indisponible";
+"Memory" = "Mémoire";
+"%@ of %@" = "%@ sur %@";
+"Processor" = "Processeur";
+"Battery" = "Batterie";
+"Condition %@" = "État %@";
+"%lld cycles" = "%lld cycles";
+"Trash" = "Corbeille";
+"Emptied by Clean up" = "Vidée par Nettoyer";
+"Free up space" = "Libérer de l'espace";
+"Supermole finds caches, leftovers and files you no longer need, and shows you everything before it removes anything." = "Supermole repère les caches, les restes et les fichiers dont tu n'as plus besoin, et te montre tout avant de supprimer quoi que ce soit.";
+"Start" = "Commencer";
+"Busiest apps" = "Apps les plus actives";
+
+/* Chart labels, read by VoiceOver */
+"Time" = "Temps";
+"Value" = "Valeur";
+"Bytes" = "Octets";
+"Size" = "Taille";
+"Name" = "Nom";
+
+/* Disk space */
+"Back" = "Retour";
+"Refresh" = "Actualiser";
+"Measuring folders… this can take a minute for the whole disk." = "Mesure des dossiers… cela peut prendre une minute pour tout le disque.";
+"Whole disk" = "Tout le disque";
+"%@ · %@ · some folders could not be read" = "%@ · %@ · certains dossiers n'ont pas pu être lus";
+"Largest items" = "Les plus gros éléments";
+"Worth a look" = "À regarder";
+"Safe to delete" = "Supprimable";
+"Check first" = "À vérifier";
+"Keep" = "À garder";
+"Unsure" = "Incertain";
+"What is it?" = "C'est quoi ?";
+"If you delete it" = "Si tu le supprimes";
+"Advice" = "Conseil";
+"Show in Finder" = "Afficher dans le Finder";
+"Open" = "Ouvrir";
+
+/* History */
+"What Supermole did on this Mac, most recent first." = "Ce que Supermole a fait sur ce Mac, du plus récent au plus ancien.";
+"Nothing yet." = "Rien pour l'instant.";
+"Uninstall" = "Désinstallation";
+"Optimize" = "Optimiser";
+"Developer projects" = "Projets de développement";
+"Installer files" = "Fichiers d'installation";
+"Slim apps" = "Alléger les apps";
+"%lld removed · %lld to Trash" = "%lld supprimés · %lld à la corbeille";
+"%lld failed" = "%lld en échec";
+
+/* Settings */
+"Engine" = "Moteur";
+"Mole" = "Mole";
+"Not installed" = "Non installé";
+"Version" = "Version";
+"About" = "À propos";
+"Supermole is an unofficial fork of Mole, modified by Airkul. It is not affiliated with or endorsed by the Mole project." = "Supermole est un fork non officiel de Mole, modifié par Airkul. Il n'est ni affilié au projet Mole ni approuvé par lui.";
+"Mole on GitHub" = "Mole sur GitHub";

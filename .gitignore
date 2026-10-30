@@ -96,3 +96,6 @@ mole_guidelines.md
 
 # Python bytecode (installer/ modules imported by render_assets.py and dmgbuild)
 __pycache__/
+
+# Swift package build output of Supermole.app
+/app/.build/

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from installer_layout import ICON_CENTER, ICON_SIZE, VISIBLE_HEIGHT, WINDOW_SIZE
+from installer_layout import APP_ICON_CENTER, APPLICATIONS_ICON_CENTER, ICON_SIZE, VISIBLE_HEIGHT, WINDOW_SIZE
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 
@@ -101,6 +101,18 @@ def centred_text(draw, centre_x: float, y: float, text: str, size: int, fill) ->
     draw.text((centre_x - width / 2, y), text, font=face, fill=fill)
 
 
+def draw_arrow(draw: ImageDraw.ImageDraw, scale: int) -> None:
+    """A purple arrow from the app icon to the Applications shortcut."""
+    gap = ICON_SIZE / 2 + 24
+    start_x = (APP_ICON_CENTER[0] + gap) * scale
+    end_x = (APPLICATIONS_ICON_CENTER[0] - gap) * scale
+    y = APP_ICON_CENTER[1] * scale
+    thickness = 6 * scale
+    head = 18 * scale
+    draw.rectangle([start_x, y - thickness / 2, end_x - head, y + thickness / 2], fill=WINDOW_PURPLE)
+    draw.polygon([(end_x - head, y - head), (end_x, y), (end_x - head, y + head)], fill=WINDOW_PURPLE)
+
+
 def render_background(scale: int) -> Image.Image:
     width, height = (dimension * scale for dimension in WINDOW_SIZE)
     image = vertical_gradient((width, height), WINDOW_TOP, WINDOW_BOTTOM)
@@ -108,24 +120,31 @@ def render_background(scale: int) -> Image.Image:
 
     pixels = banner_pixels(WINDOW_PURPLE, WINDOW_GREEN)
     columns = len(BANNER_TOP)
-    pixel = 9 * scale
+    pixel = 7 * scale
     banner_width = columns * pixel
     # Touching pixels, like the terminal's half blocks; gaps break the letters.
-    draw_pixels(draw, ((width - banner_width) / 2, 38 * scale), pixel, 0, pixels)
+    draw_pixels(draw, ((width - banner_width) / 2, 26 * scale), pixel, 0, pixels)
 
     centre = width / 2
-    centred_text(draw, centre, 82 * scale, "Mole, avec une IA qui t'explique ton disque", 15 * scale, WINDOW_MUTED)
+    centred_text(draw, centre, 62 * scale, "Mole, avec une IA qui t'explique ton disque", 14 * scale, WINDOW_MUTED)
 
-    # The app icon sits at ICON_CENTER, with Finder's label just below it.
-    call_to_action = ICON_CENTER[1] + ICON_SIZE / 2 + 34
-    centred_text(draw, centre, call_to_action * scale, "Double-clique pour installer", 17 * scale, WINDOW_TEXT)
+    draw_arrow(draw, scale)
 
-    help_first_line = call_to_action + 26
+    # The icons sit at their centres, with Finder's labels just below them.
+    call_to_action = APP_ICON_CENTER[1] + ICON_SIZE / 2 + 36
+    centred_text(draw, centre, call_to_action * scale,
+                 "Glisse Supermole dans Applications", 17 * scale, WINDOW_TEXT)
+    centred_text(draw, centre, (call_to_action + 22) * scale,
+                 "Drag Supermole to Applications", 13 * scale, WINDOW_MUTED)
+
+    help_first_line = call_to_action + 46
     centred_text(draw, centre, help_first_line * scale,
-                 "macOS bloque l'ouverture ?", 12 * scale, WINDOW_MUTED)
-    centred_text(draw, centre, (help_first_line + 16) * scale,
-                 "Réglages › Confidentialité et sécurité › Ouvrir quand même", 12 * scale, WINDOW_MUTED)
-    assert help_first_line + 16 + 14 <= VISIBLE_HEIGHT, "help text would fall under Finder's bars"
+                 "macOS bloque l'ouverture ? Réglages › Confidentialité et sécurité › Ouvrir quand même",
+                 11 * scale, WINDOW_MUTED)
+    centred_text(draw, centre, (help_first_line + 15) * scale,
+                 "Blocked by macOS? System Settings › Privacy & Security › Open Anyway",
+                 11 * scale, WINDOW_MUTED)
+    assert help_first_line + 15 + 13 <= VISIBLE_HEIGHT, "help text would fall under Finder's bars"
     return image
 
 

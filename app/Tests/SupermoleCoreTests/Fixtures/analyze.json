@@ -1,0 +1,6 @@
+{"scan_status":"partial","path":"/","overview":true,
+ "entries":[{"scan_status":"complete","name":"Applications","path":"/Applications","size":22491836416,"is_dir":true},
+            {"scan_status":"complete","name":"User Library","path":"/Users/test/Library","size":58521743360,"is_dir":true},
+            {"scan_status":"complete","name":"Xcode Simulators","path":"/Users/test/Library/Developer/CoreSimulator/Devices","size":7175614247,"is_dir":true,"insight":true,"cleanable":true,"last_access":"3 months ago"}],
+ "large_files":[{"name":"movie.mov","path":"/Users/test/Movies/movie.mov","size":4000000000}],
+ "total_size":135736690731,"total_files":1200}

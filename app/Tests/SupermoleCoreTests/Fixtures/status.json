@@ -1,0 +1,13 @@
+{"collected_at":"2026-10-30T17:00:00Z","host":"test-mac","platform":"darwin","uptime":"5d 2h","uptime_seconds":439200,"procs":512,
+ "hardware":{"model":"MacBook Air","cpu_model":"Apple M4","total_ram":"16.0 GB","disk_size":"228.3 GB","os_version":"macOS 27.0.1","refresh_rate":""},
+ "health_score":86,"health_score_msg":"Excellent",
+ "cpu":{"usage":18.6,"per_core":[45.4,9.8],"per_core_estimated":false,"load1":3.0,"load5":3.2,"load15":3.3,"core_count":10,"logical_cpu":10,"p_core_count":4,"e_core_count":6},
+ "gpu":null,
+ "memory":{"used":14166507520,"total":17179869184,"available":3013361664,"used_percent":82.46,"swap_used":4628480000,"swap_total":6442450944,"cached":2202812416,"pressure":""},
+ "disks":[{"mount":"/Volumes/Backup","device":"/dev/disk5s1","used":100,"total":1000,"used_percent":10,"fstype":"apfs","external":true},
+          {"mount":"/","device":"/dev/disk3s1s1","used":212390669760,"total":245107195904,"used_percent":86.65,"fstype":"apfs","external":false,"smart_status":"verified","purgeable":5156479552}],
+ "trash_size":59396,"trash_approx":false,"disk_io":{"read_rate":0,"write_rate":0},"network":null,
+ "batteries":[{"percent":64,"status":"charging","time_left":"2:02","health":"Good","cycle_count":105,"capacity":92}],
+ "thermal":{"cpu_temp":0,"battery_temp":27.69},"sensors":null,"bluetooth":null,
+ "top_processes":[{"pid":409,"ppid":1,"name":"WindowServer","command":"WindowServer","cpu":37.8,"memory":0.4,"memory_bytes":71155712}],
+ "zombie_parents":null,"process_watch":{},"process_alerts":null}

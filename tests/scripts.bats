@@ -763,64 +763,29 @@ PYTHON
     [ "$status" -eq 0 ]
 }
 
-@test "dmg installer command installs from the repository install.sh names" {
-    local command_file="$PROJECT_ROOT/installer/install-supermole.command"
-    local installer_slug command_slug
+@test "Supermole.app installs mo from the repository install.sh names" {
+    local installer_slug app_slug
     installer_slug=$(sed -n 's/^MOLE_REPO_SLUG="\(.*\)"$/\1/p' "$PROJECT_ROOT/install.sh")
-    command_slug=$(sed -n 's/^SUPERMOLE_REPO_SLUG="\(.*\)"$/\1/p' "$command_file")
+    app_slug=$(sed -n 's/^ *public static let repositorySlug = "\(.*\)"$/\1/p' \
+        "$PROJECT_ROOT/app/Sources/SupermoleCore/MoleInstaller.swift")
     [ -n "$installer_slug" ]
-    [ "$command_slug" = "$installer_slug" ]
-    # Without pipefail a failed download pipes nothing into bash, which exits 0.
-    run grep -Fx 'set -o pipefail' "$command_file"
-    [ "$status" -eq 0 ]
-    [ -x "$command_file" ]
+    [ "$app_slug" = "$installer_slug" ]
 }
 
-@test "dmg installer command reports the install result and removes its copy" {
-    local installer_slug
-    installer_slug=$(sed -n 's/^MOLE_REPO_SLUG="\(.*\)"$/\1/p' "$PROJECT_ROOT/install.sh")
-    # shellcheck disable=SC2016 # The fake's body expands when it runs.
-    mole_test_fake_command curl 'printf "%s\n" "$*" >> "$HOME/curl-args"
-if [[ -n "${FAKE_CURL_STATUS:-}" ]]; then exit "$FAKE_CURL_STATUS"; fi
-printf "%s\n" "${FAKE_INSTALLER:-echo installed}"'
+@test "Supermole.app translation check names a missing and a stale key" {
+    local strings_dir="$HOME/stringsdata" resources="$HOME/Resources"
+    mkdir -p "$strings_dir" "$resources/fr.lproj" "$resources/en.lproj"
+    printf '%s' '{"tables":{"Localizable":[{"key":"Install"},{"key":"Back"}]}}' > "$strings_dir/View.stringsdata"
+    printf '"Install" = "Installer";\n"Gone" = "Parti";\n' > "$resources/fr.lproj/Localizable.strings"
+    printf '/* source language */\n' > "$resources/en.lproj/Localizable.strings"
 
-    # Copies carry the launcher's name pattern (commandCopyPattern).
-    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/install-supermole-1.command"
-    run /bin/bash "$HOME/install-supermole-1.command"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"installed"* ]] || return 1
-    [[ "$output" == *"Tu peux fermer cette fenêtre."* ]] || return 1
-    [ ! -e "$HOME/install-supermole-1.command" ]
-    run cat "$HOME/curl-args"
-    [ "$output" = "-fsSL https://raw.githubusercontent.com/${installer_slug}/main/install.sh" ]
+    run python3 "$PROJECT_ROOT/scripts/check_app_localization.py" "$strings_dir" "$resources"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fr: missing translation for 'Back'"* ]] || return 1
+    [[ "$output" == *"fr: 'Gone' is no longer used"* ]] || return 1
 
-    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/install-supermole-2.command"
-    run env FAKE_INSTALLER='exit 3' /bin/bash "$HOME/install-supermole-2.command"
-    [ "$status" -eq 3 ]
-    [[ "$output" == *"L'installation n'a pas abouti"* ]] || return 1
-    [ ! -e "$HOME/install-supermole-2.command" ]
-
-    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/install-supermole-3.command"
-    run env FAKE_CURL_STATUS=22 /bin/bash "$HOME/install-supermole-3.command"
-    [ "$status" -eq 22 ]
-    [[ "$output" == *"L'installation n'a pas abouti"* ]] || return 1
-    [[ "$output" != *"Tu peux fermer"* ]] || return 1
-    [ ! -e "$HOME/install-supermole-3.command" ]
-
-    # Run under its own name, as from a checkout, the script stays.
-    mkdir -p "$HOME/checkout"
-    cp "$PROJECT_ROOT/installer/install-supermole.command" "$HOME/checkout/install-supermole.command"
-    run /bin/bash "$HOME/checkout/install-supermole.command"
-    [ "$status" -eq 0 ]
-    [ -f "$HOME/checkout/install-supermole.command" ]
-}
-
-@test "dmg installer command deletes itself only under the launcher's copy name" {
-    local launcher_pattern
-    launcher_pattern=$(sed -n 's/^[[:space:]]*commandCopyPattern = "\(.*\)"$/\1/p' \
-        "$PROJECT_ROOT/cmd/installer-launcher/main.go")
-    [ "$launcher_pattern" = "install-supermole-*.command" ]
-    run grep -F "    ${launcher_pattern})" "$PROJECT_ROOT/installer/install-supermole.command"
+    printf '"Install" = "Installer";\n"Back" = "Retour";\n' > "$resources/fr.lproj/Localizable.strings"
+    run python3 "$PROJECT_ROOT/scripts/check_app_localization.py" "$strings_dir" "$resources"
     [ "$status" -eq 0 ]
 }
 

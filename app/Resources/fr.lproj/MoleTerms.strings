@@ -1,0 +1,48 @@
+/* Words mo returns in English, keyed "<context>.<term>" (see MoleTerms.swift).
+   Places: cmd/analyze/main.go and insights.go. Health: cmd/status/metrics_health.go.
+   Battery: cmd/status/metrics_battery.go and System Information's condition. */
+
+"place.Home" = "Dossier personnel";
+"place.User Library" = "Bibliothèque de l'utilisateur";
+"place.Applications" = "Applications";
+"place.System Library" = "Bibliothèque du système";
+"place.iOS Backups" = "Sauvegardes iPhone et iPad";
+"place.Old Downloads (90d+)" = "Vieux téléchargements (plus de 90 jours)";
+"place.System Logs" = "Journaux système";
+"place.Homebrew Cache" = "Cache Homebrew";
+"place.Xcode DerivedData" = "Xcode DerivedData";
+"place.Xcode Simulators" = "Simulateurs Xcode";
+"place.Xcode Archives" = "Archives Xcode";
+"place.Spotify Cache" = "Cache Spotify";
+"place.JetBrains Cache" = "Cache JetBrains";
+"place.Docker Data" = "Données Docker";
+"place.pip Cache" = "Cache pip";
+"place.uv Cache" = "Cache uv";
+"place.Gradle Cache" = "Cache Gradle";
+"place.CocoaPods Cache" = "Cache CocoaPods";
+"place.OrbStack Data" = "Données OrbStack";
+
+"health.Excellent" = "Excellent";
+"health.Good" = "Bon";
+"health.Fair" = "Moyen";
+"health.Needs Attention" = "À surveiller";
+
+"issue.High CPU" = "Processeur très sollicité";
+"issue.High Memory" = "Mémoire très utilisée";
+"issue.Memory Pressure" = "Mémoire sous pression";
+"issue.Critical Memory" = "Mémoire saturée";
+"issue.Disk Almost Full" = "Disque presque plein";
+"issue.Disk SMART Failing" = "Disque défaillant (SMART)";
+"issue.Overheating" = "Surchauffe";
+"issue.Heavy Disk IO" = "Disque très sollicité";
+"issue.Battery Service Soon" = "Batterie à faire réviser";
+"issue.Restart Recommended" = "Redémarrage conseillé";
+
+"battery.Good" = "bon";
+"battery.Normal" = "normal";
+"battery.Healthy" = "bon";
+"battery.Fair" = "moyen";
+"battery.Service Soon" = "à faire réviser bientôt";
+"battery.Service Recommended" = "révision conseillée";
+"battery.Replace Soon" = "à remplacer bientôt";
+"battery.Replace Now" = "à remplacer";

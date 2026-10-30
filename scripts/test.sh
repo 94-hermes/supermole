@@ -144,6 +144,8 @@ report_unit_result() {
 enforce_timeout_dependency_in_ci
 
 GO_TEST_CACHE="${MOLE_GO_TEST_CACHE:-/tmp/mole-go-build-cache}"
+# Supermole.app's Swift package (app/) builds here between runs.
+SWIFT_TEST_SCRATCH="/tmp/mole-swift-build"
 export MOLE_GO_TEST_CACHE="$GO_TEST_CACHE"
 
 test_selection_needs_go_helpers() {
@@ -393,7 +395,7 @@ else
 fi
 echo ""
 
-echo "3. Running Go tests..."
+echo "3. Running Go and Swift tests..."
 if command -v go > /dev/null 2>&1; then
     mkdir -p "$GO_TEST_CACHE"
     # Kept quiet on success; on failure the output names the failing test,
@@ -410,6 +412,18 @@ if command -v go > /dev/null 2>&1; then
     fi
 else
     printf '%b' "${YELLOW}${ICON_WARNING} Go not installed, skipping Go tests${NC}\n"
+fi
+if command -v swift > /dev/null 2>&1; then
+    swift_test_log="$TEST_SYSTEM_STUB_DIR/swift-test.log"
+    if swift test --package-path app --scratch-path "$SWIFT_TEST_SCRATCH" > "$swift_test_log" 2>&1; then
+        printf '%b' "${GREEN}${ICON_SUCCESS} Swift tests passed${NC}\n"
+    else
+        cat "$swift_test_log"
+        printf '%b' "${RED}${ICON_ERROR} Swift tests failed${NC}\n"
+        FAILED=$((FAILED + 1))
+    fi
+else
+    printf '%b' "${YELLOW}${ICON_WARNING} Swift not installed, skipping Supermole.app tests${NC}\n"
 fi
 echo ""
 

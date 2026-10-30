@@ -1,7 +1,7 @@
 #!/bin/bash
-# Build Installer-Supermole.dmg: an app whose executable (cmd/installer-launcher)
-# opens Terminal on installer/install-supermole.command, with the fork's icon,
-# inside a dmg laid out by dmgbuild (installer/dmg_settings.py).
+# Build Installer-Supermole.dmg: Supermole.app (the SwiftUI app in app/, which
+# installs and drives `mo`) beside an Applications shortcut, inside a dmg laid
+# out by dmgbuild (installer/dmg_settings.py).
 #
 # Usage: scripts/build_installer_dmg.sh <output-dir>
 #
@@ -13,38 +13,50 @@
 #   SUPERMOLE_NOTARY_KEY      path to an App Store Connect API key (.p8)
 #   SUPERMOLE_NOTARY_KEY_ID   its key id
 #   SUPERMOLE_NOTARY_ISSUER   its issuer id
-# Needs Go and dmgbuild on PATH (scripts/install_dmgbuild.sh installs dmgbuild).
+# Needs Swift (Xcode) and dmgbuild on PATH (scripts/install_dmgbuild.sh
+# installs dmgbuild).
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALLER_DIR="$PROJECT_ROOT/installer"
-INSTALLER_APP_NAME="Installer Supermole"
-INSTALLER_EXECUTABLE="installer-launcher"
+APP_PACKAGE_DIR="$PROJECT_ROOT/app"
+INSTALLER_APP_NAME="Supermole"
+INSTALLER_EXECUTABLE="Supermole"
 INSTALLER_ICON_NAME="AppIcon"
 INSTALLER_DMG_NAME="Installer-Supermole.dmg"
 INSTALLER_VOLUME_NAME="Supermole"
-INSTALLER_BUNDLE_ID="com.airkul.supermole.installer"
-INSTALLER_MIN_MACOS="12.0"
-INSTALLER_GO_ARCHES=(arm64 amd64)
+INSTALLER_BUNDLE_ID="com.airkul.supermole"
+# Liquid Glass needs macOS 26; mo itself still runs on macOS 12.
+INSTALLER_MIN_MACOS="26.0"
+INSTALLER_SWIFT_ARCHES=(arm64 x86_64)
 INSTALLER_ICON_SIZES=(16 32 128 256 512)
 
 installer_version() {
     sed -n 's/^VERSION="\(.*\)"$/\1/p' "$PROJECT_ROOT/mole" | head -n 1
 }
 
-# One universal launcher at $2. Each slice is checked against the minimum
+# One universal executable at $2. Each slice is checked against the minimum
 # macOS before lipo joins them, since check_release_minos.sh reads only the
-# first slice of a universal file.
-build_launcher() {
-    local work_dir="$1" output="$2" arch
+# first slice of a universal file, and the compiler's list of displayed text
+# is checked against the translations.
+build_app_executable() {
+    local work_dir="$1" output="$2" arch bin_dir
+    local localized_strings="$work_dir/localized-strings"
     local slices=()
-    for arch in "${INSTALLER_GO_ARCHES[@]}"; do
-        (cd "$PROJECT_ROOT" && CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
-            go build -trimpath -ldflags="-s -w" -o "$work_dir/launcher-$arch" ./cmd/installer-launcher)
-        "$PROJECT_ROOT/scripts/check_release_minos.sh" --max "$INSTALLER_MIN_MACOS" "$work_dir/launcher-$arch"
-        slices+=("$work_dir/launcher-$arch")
+    mkdir -p "$localized_strings"
+    for arch in "${INSTALLER_SWIFT_ARCHES[@]}"; do
+        local swift_args=(-c release --package-path "$APP_PACKAGE_DIR"
+            --scratch-path "$work_dir/swift-$arch"
+            --triple "${arch}-apple-macosx${INSTALLER_MIN_MACOS}"
+            --product "$INSTALLER_EXECUTABLE")
+        swift build "${swift_args[@]}" \
+            -Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc "$localized_strings"
+        bin_dir="$(swift build "${swift_args[@]}" --show-bin-path)"
+        "$PROJECT_ROOT/scripts/check_release_minos.sh" --max "$INSTALLER_MIN_MACOS" "$bin_dir/$INSTALLER_EXECUTABLE"
+        slices+=("$bin_dir/$INSTALLER_EXECUTABLE")
     done
+    python3 "$PROJECT_ROOT/scripts/check_app_localization.py" "$localized_strings" "$APP_PACKAGE_DIR/Resources"
     /usr/bin/lipo -create "${slices[@]}" -output "$output"
 }
 
@@ -63,15 +75,13 @@ build_icon() {
 
 write_info_plist() {
     local plist="$1" version="$2"
-    # LSUIElement: the launcher exits as soon as Terminal opens, so it never
-    # needs a Dock icon.
     cat > "$plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>fr</string>
+	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>${INSTALLER_EXECUTABLE}</string>
 	<key>CFBundleIconFile</key>
@@ -80,6 +90,11 @@ write_info_plist() {
 	<string>${INSTALLER_BUNDLE_ID}</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>fr</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>${INSTALLER_APP_NAME}</string>
 	<key>CFBundlePackageType</key>
@@ -88,9 +103,11 @@ write_info_plist() {
 	<string>${version}</string>
 	<key>CFBundleVersion</key>
 	<string>${version}</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>${INSTALLER_MIN_MACOS}</string>
-	<key>LSUIElement</key>
+	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>
 </plist>
@@ -102,7 +119,7 @@ EOF
 build_installer_app() {
     local work_dir="$1"
     local app="$work_dir/$INSTALLER_APP_NAME.app"
-    local version
+    local version localization
     version="$(installer_version)"
     [[ -n "$version" ]] || {
         echo "Could not read VERSION from $PROJECT_ROOT/mole" >&2
@@ -110,10 +127,11 @@ build_installer_app() {
     }
 
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-    build_launcher "$work_dir" "$app/Contents/MacOS/$INSTALLER_EXECUTABLE"
+    build_app_executable "$work_dir" "$app/Contents/MacOS/$INSTALLER_EXECUTABLE"
     build_icon "$work_dir" "$app/Contents/Resources/$INSTALLER_ICON_NAME.icns"
-    cp "$INSTALLER_DIR/install-supermole.command" "$app/Contents/Resources/install-supermole.command"
-    chmod 755 "$app/Contents/Resources/install-supermole.command"
+    for localization in "$APP_PACKAGE_DIR"/Resources/*.lproj; do
+        cp -R "$localization" "$app/Contents/Resources/"
+    done
     write_info_plist "$app/Contents/Info.plist" "$version"
 
     if [[ -n "${SUPERMOLE_SIGN_IDENTITY:-}" ]]; then
@@ -132,7 +150,7 @@ notarization_configured() {
 
 build_installer_dmg() {
     local output_dir="$1" tool
-    for tool in go dmgbuild; do
+    for tool in swift python3 dmgbuild; do
         command -v "$tool" > /dev/null || {
             echo "$tool not found on PATH; scripts/install_dmgbuild.sh installs dmgbuild" >&2
             return 1

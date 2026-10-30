@@ -55,10 +55,10 @@ jobs:
           path: bin/*-darwin-*
           retention-days: 1
 
-  # Installer-Supermole.dmg: an app that opens Terminal on install.sh, for
-  # people who download a file instead of pasting a command. It is signed ad
-  # hoc until the Apple secrets below exist; then it is signed with Developer
-  # ID, notarized and stapled (scripts/build_installer_dmg.sh).
+  # Installer-Supermole.dmg: Supermole.app, the one-window app that installs
+  # and drives mo, for people who never open Terminal. It is signed ad hoc
+  # until the Apple secrets below exist; then it is signed with Developer ID,
+  # notarized and stapled (scripts/build_installer_dmg.sh).
   installer:
     name: Build Installer
     runs-on: macos-latest
@@ -69,11 +69,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
 
       - name: Install dmgbuild
         run: ./scripts/install_dmgbuild.sh "$RUNNER_TEMP/dmgbuild" >> "$GITHUB_PATH"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
-# Builds Installer-Supermole.dmg for real (about 15 s). scripts/test.sh runs
-# this file only when dmgbuild is on PATH; CI's Validation job installs it.
+# Builds Installer-Supermole.dmg for real (about a minute: Supermole.app is
+# compiled for both architectures). scripts/test.sh runs this file only when
+# dmgbuild is on PATH; CI's Validation job installs it.
 
 load helpers/common
 
@@ -29,7 +30,7 @@ teardown() {
     fi
 }
 
-@test "build_installer_dmg.sh puts an ad hoc signed installer app in a valid dmg" {
+@test "build_installer_dmg.sh puts a signed universal Supermole.app beside Applications in a valid dmg" {
     local out="$HOME/out"
     run env -u SUPERMOLE_SIGN_IDENTITY -u SUPERMOLE_NOTARY_KEY \
         "$PROJECT_ROOT/scripts/build_installer_dmg.sh" "$out"
@@ -40,43 +41,42 @@ teardown() {
         -mountpoint "$DMG_MOUNT" "$out/Installer-Supermole.dmg"
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     DMG_ATTACHED=1
-    local app="$DMG_MOUNT/Installer Supermole.app"
-    local launcher="$app/Contents/MacOS/installer-launcher"
+    local app="$DMG_MOUNT/Supermole.app"
+    local executable="$app/Contents/MacOS/Supermole"
     local plist="$app/Contents/Info.plist"
     local version
     version=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$PROJECT_ROOT/mole")
 
-    # Unsigned edits read as "damaged"; ad hoc keeps macOS's Open Anyway path.
+    # The drag-to-install layout.
+    [ "$(readlink "$DMG_MOUNT/Applications")" = "/Applications" ]
+
+    # Unsigned apps read as "damaged"; ad hoc keeps macOS's Open Anyway path.
     run /usr/bin/codesign --verify --deep --strict "$app"
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     run /usr/bin/codesign -dv "$app"
     [[ "$output" == *"Signature=adhoc"* ]] || return 1
-    [[ "$output" == *"Identifier=com.airkul.supermole.installer"* ]] || return 1
+    [[ "$output" == *"Identifier=com.airkul.supermole"* ]] || return 1
 
     run /usr/bin/plutil -extract CFBundleShortVersionString raw "$plist"
     [ "$output" = "$version" ]
-    run /usr/bin/plutil -extract CFBundleName raw "$plist"
-    [ "$output" = "Installer Supermole" ]
     run /usr/bin/plutil -extract CFBundleExecutable raw "$plist"
-    [ "$output" = "installer-launcher" ]
+    [ "$output" = "Supermole" ]
     run /usr/bin/plutil -extract LSMinimumSystemVersion raw "$plist"
-    [ "$output" = "12.0" ]
+    [ "$output" = "26.0" ]
     [ -s "$app/Contents/Resources/AppIcon.icns" ]
+    [ -s "$app/Contents/Resources/fr.lproj/Localizable.strings" ]
+    [ -s "$app/Contents/Resources/fr.lproj/MoleTerms.strings" ]
+    [ -e "$app/Contents/Resources/en.lproj/Localizable.strings" ]
 
-    # Both slices must load on macOS 12: an osacompile applet required the
-    # build Mac's own version on Apple silicon.
-    run /usr/bin/lipo -archs "$launcher"
+    # Both slices must load on macOS 26, the app's floor (Liquid Glass).
+    run /usr/bin/lipo -archs "$executable"
     [[ " $output " == *" x86_64 "* && " $output " == *" arm64 "* ]] || { echo "$output"; return 1; }
     local arch
     for arch in x86_64 arm64; do
-        /usr/bin/lipo -thin "$arch" "$launcher" -output "$HOME/launcher-$arch"
-        run "$PROJECT_ROOT/scripts/check_release_minos.sh" --max 12.0 "$HOME/launcher-$arch"
+        /usr/bin/lipo -thin "$arch" "$executable" -output "$HOME/supermole-$arch"
+        run "$PROJECT_ROOT/scripts/check_release_minos.sh" --max 26.0 "$HOME/supermole-$arch"
         [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     done
-
-    cmp "$PROJECT_ROOT/installer/install-supermole.command" \
-        "$app/Contents/Resources/install-supermole.command"
-    [ -x "$app/Contents/Resources/install-supermole.command" ]
     [ -s "$DMG_MOUNT/.background.tiff" ]
     [ -s "$DMG_MOUNT/.VolumeIcon.icns" ]
 }
