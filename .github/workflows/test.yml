@@ -132,11 +132,42 @@ jobs:
           fi
           '
 
+      # gitleaks-action needs a license key for repositories owned by an
+      # organization, which this fork is; the CLI it wraps does not. Pin the
+      # release and its checksums, and scan the commits this event brings,
+      # as the action did.
       - name: Scan for secrets (gitleaks)
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256_ARM64: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+          GITLEAKS_SHA256_X64: dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_ARCH" in
+            ARM64) arch=arm64; expected="$GITLEAKS_SHA256_ARM64" ;;
+            X64) arch=x64; expected="$GITLEAKS_SHA256_X64" ;;
+            *) echo "No pinned gitleaks build for runner arch $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="gitleaks_${GITLEAKS_VERSION}_darwin_${arch}.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${expected}  ${RUNNER_TEMP}/${archive}" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          zero_sha=0000000000000000000000000000000000000000
+          range=""
+          if [[ -n "$BASE_SHA" ]]; then
+            range="${BASE_SHA}..${HEAD_SHA}"
+          elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != "$zero_sha" ]]; then
+            range="${BEFORE_SHA}..${HEAD_SHA}"
+          fi
+          args=(git --config .gitleaks.toml --redact --no-banner --exit-code 1)
+          if [[ -n "$range" ]]; then
+            args+=(--log-opts="$range")
+          fi
+          "$RUNNER_TEMP/gitleaks" "${args[@]}"
 
       - name: Run high-risk path regression tests
         env:
