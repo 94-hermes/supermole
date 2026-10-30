@@ -18,7 +18,7 @@ Layout: this file is always loaded and holds the cross-cutting contract. Area ru
 | `.claude/rules/install-update.md` | `mole` router pins, `install.sh`, `mo update`, self-heal, install lock, `mo remove` |
 | `.claude/rules/tests.md` | Bats and Go test validity, test lint, CI jobs |
 | `.claude/rules/github.md` | Issue, PR and Discussion replies and closeout, Mole Mac invitation, announcements, issue version preflight |
-| `.claude/rules/readme.md` | README copies in every language |
+| `.claude/rules/readme.md` | README.md: English only, fork preamble |
 
 The hotspot files named in the rule files are intentionally large. Do not start by splitting them. Keep edits narrow, preserve local safety boundaries, and run the listed tests when touching each area.
 

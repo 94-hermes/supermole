@@ -1,9 +1,15 @@
+> [!NOTE]
+> **Unofficial fork of [Mole](https://github.com/tw93/Mole), modified by Airkul.** Not affiliated with or endorsed by the Mole project.
+>
+> What this fork changes:
+> - **AI explanations in `mo analyze`**: Claude Code (or Codex) tells you in plain words what a file or folder is and whether it is safe to delete.
+> - **Installs and updates from this repository**: see [Quick Start](#quick-start).
+
 <p align="right"><b>macOS</b> · <a href="https://github.com/tw93/Mole/tree/windows">Windows</a></p>
 
 <div align="center">
   <h1>Mole</h1>
   <p><b>Deep clean, uninstall apps, optimize, analyze disk, and monitor your Mac. Free open-source CLI, plus a native Mac app.</b></p>
-  <p>English · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a> · <a href="README_UA.md">Українська</a> · <a href="README_RU.md">Русский</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/release/tw93/mole?label=version&style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL_v3-blue.svg?style=flat-square" alt="License"></a>
@@ -16,7 +22,7 @@
   <img src="./docs/img/big-mole.png" alt="Mole cleanup results" width="1000" />
 </p>
 
-> 💡 This repo is the free open-source CLI (`mo`). Prefer a native app? [Mole for Mac](https://mole.fit/) is a separate download with review-before-delete cleanup, tested leftovers for 800+ apps, maintenance, disk drill-downs, live status, and fan controls on supported Macs. On Windows, the native app is [Mole for Windows](https://mole.fit/windows). `brew install mole` installs the CLI only.
+> 💡 This repo is the free open-source CLI (`mo`). Prefer a native app? [Mole for Mac](https://mole.fit/) is a separate download with review-before-delete cleanup, tested leftovers for 800+ apps, maintenance, disk drill-downs, live status, and fan controls on supported Macs. On Windows, the native app is [Mole for Windows](https://mole.fit/windows).
 
 ## Features
 
@@ -29,27 +35,31 @@
 
 ## Quick Start
 
-Mole requires macOS 12 or newer and supports both Intel and Apple Silicon Macs. If Homebrew no longer supports your macOS version, use the script install instead.
+This fork requires macOS 12 or newer, on Intel or Apple Silicon, plus Git and Go to build it. The AI explanations in `mo analyze` also need [Claude Code](https://claude.com/claude-code) (`claude`) or [Codex](https://github.com/openai/codex) (`codex`), installed and signed in.
 
-**Install via Homebrew**
-
-```bash
-brew install mole
-```
-
-**Or via script**
+**Install**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash
+brew install go                      # Only if Go is not installed yet
+git clone https://github.com/94-hermes/supermole.git
+cd supermole
+make build
+./install.sh
 ```
+
+`./install.sh` installs this folder's `mo` into `/usr/local/bin`, which may ask for an administrator password. If upstream Mole is installed with Homebrew, remove it first with `brew uninstall --force mole`: the installer stops while it is the active `mo`.
+
+**Update**
+
+```bash
+cd supermole && git pull && make build && ./install.sh
+```
+
+`mo update` would install upstream Mole over this fork, so here it prints these commands instead.
 
 **With an AI agent**
 
-Tell your agent:
-
-> Install Mole for me by reading https://raw.githubusercontent.com/tw93/Mole/main/llms.txt
-
-Or install the skill yourself. With it, Claude Code, Codex, Cursor and other agents show every cleanup with `--dry-run` before anything is removed, and leave app uninstalls and administrator steps to you. Update with `npx skills update -g -y`.
+Install the Mole skill so Claude Code, Codex, Cursor and other agents show every cleanup with `--dry-run` before anything is removed, and leave app uninstalls and administrator steps to you. The skill drives whichever `mo` is installed, so it works with this fork. Update it with `npx skills update -g -y`.
 
 ```bash
 npx skills add tw93/Mole -a claude-code codex cursor -g -y
@@ -72,8 +82,7 @@ mo slim                      # Remove Intel code from universal apps
 
 mo touchid                   # Configure Touch ID for sudo
 mo completion                # Set up shell tab completion
-mo update                    # Update Mole
-mo update --nightly          # Update to latest unreleased main build, script install only
+mo update                    # Show this fork's update commands
 mo remove                    # Remove Mole from system
 mo --help                    # Show help
 mo --version                 # Show installed version
@@ -102,36 +111,15 @@ mo analyze /private/tmp      # Review user-owned temporary directories
 <details>
 <summary><strong>Other install options</strong></summary>
 
-To install a specific release, pass any tag from the [releases page](https://github.com/tw93/mole/releases), with or without its leading `V`. To track the development branch instead, pass `main`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s -- 1.51.0
-curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s -- main
-```
-
-`main` installs unreleased code from the default branch, so expect rough edges. `latest` still works as a legacy alias for `main`; despite the name it does not install the newest stable release.
-
-The script normally installs to `/usr/local/bin`, which may ask for an administrator password. Install into a user-owned directory if you want future `mo update` runs to stay password-free:
+`./install.sh` normally installs to `/usr/local/bin`, which may ask for an administrator password. To install into a user-owned directory instead:
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s -- --prefix "$HOME/.local/bin"
+./install.sh --prefix "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Add the same `PATH` export to `~/.zshrc` or your shell profile for new terminals. Mole updates the installation you invoked, so it keeps using this directory. Commands that change system-owned files may still request administrator access.
-
-**Nix**
-
-On macOS, Nix users can install the flake from `main`, which contains unreleased changes:
-
-```bash
-nix profile install github:tw93/mole/main#mole
-nix profile upgrade mole
-nix profile remove mole
-```
-
-For a declarative installation, add `github:tw93/mole/main` as a flake input and use its `packages.${system}.mole` package. Update or remove Mole through Nix; `mo update` and `mo remove` leave Nix-managed installations unchanged.
+Add the same `PATH` export to `~/.zshrc` or your shell profile for new terminals, and pass the same `--prefix` when you update. Commands that change system-owned files may still request administrator access.
 
 </details>
 
@@ -141,7 +129,7 @@ For a declarative installation, add `github:tw93/mole/main` as a flake input and
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
-Mole is only distributed through Homebrew, this repository and [mole.fit](https://mole.fit/). `molemac.com`, `moleapp.net` and `molefit.com` are not Mole, and the Windows app at `mole.bluecatbot.com` is a separate community project.
+Upstream Mole is only distributed through Homebrew, [its repository](https://github.com/tw93/Mole) and [mole.fit](https://mole.fit/). `molemac.com`, `moleapp.net` and `molefit.com` are not Mole, and the Windows app at `mole.bluecatbot.com` is a separate community project.
 
 ## Safety
 
@@ -263,6 +251,8 @@ Applied 2 optimizations
 ### Analyze
 
 `mo analyze` opens a terminal disk explorer. It supports arrow keys and Vim navigation, filtering, multi-selection, Finder preview, and confirmed moves to Trash. External drives are skipped from the default overview; inspect them with `mo analyze /Volumes` or a specific mount path. Use `mo analyze /private/tmp` to review user-owned temporary files without turning them into automatic cleanup targets. File-by-file scans count APFS clones that share all blocks once; fast folder estimates can still count shared blocks more than once.
+
+In this fork, `e` explains the selected row in plain words, including whether it is safe to delete, and `⇧E` explains every row on screen. Answers come from Claude Code (or Codex) and are remembered between runs.
 
 A size ending in `+` contains measured bytes from a partial scan; `unknown` means the size could not be measured. Results cut short by temporary failures such as timeouts do not replace complete cached measurements, and a later refresh can recover the missing data. Folders macOS will not let the terminal read stay partial until access changes. The terminal list keeps the 30 largest entries, so an unreadable entry may fall outside that list; the total still indicates a partial scan. Directory JSON output includes all scanned entries.
 
