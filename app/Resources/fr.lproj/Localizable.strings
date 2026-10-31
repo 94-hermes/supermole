@@ -59,12 +59,9 @@
 "Largest items" = "Les plus gros éléments";
 "Worth a look" = "À regarder";
 "Safe to delete" = "Supprimable";
-"Check first" = "À vérifier";
+"Check first" = "Prudence";
 "Keep" = "À garder";
 "Unsure" = "Incertain";
-"What is it?" = "C'est quoi ?";
-"If you delete it" = "Si tu le supprimes";
-"Advice" = "Conseil";
 "Show in Finder" = "Afficher dans le Finder";
 "Open" = "Ouvrir";
 
@@ -116,3 +113,24 @@
 "Details" = "Détails";
 "System caches are included: an administrator session is open." = "Les caches système sont inclus : une session administrateur est ouverte.";
 "Tool commands" = "Commandes d'outils";
+
+/* Analyze, as mo analyze shows it in the terminal (cmd/analyze/explain_view.go) */
+"Explain" = "Expliquer";
+"What it is: " = "C'est quoi : ";
+"If I delete it: " = "Si je supprime : ";
+"Advice: " = "Conseil : ";
+"after reading the files" = "après lecture des fichiers";
+"without opening the files" = "sans ouvrir les fichiers";
+"answer of %@" = "réponse du %@";
+"Not explained yet. Press E to ask the AI." = "Pas encore expliqué. Appuie sur E pour demander à l'IA.";
+"Nothing to explain here." = "Rien à expliquer ici.";
+"Could not get an explanation." = "Impossible d'obtenir une explication.";
+"E: try again" = "E : réessayer";
+"E: look inside (read-only)" = "E : regarder dedans (lecture seule)";
+"The AI is thinking… %lld s" = "L'IA réfléchit… %lld s";
+"The AI is looking inside, read-only… %lld s" = "L'IA regarde dedans, en lecture seule… %lld s";
+"Move" = "Naviguer";
+"All" = "Tout";
+"Open file" = "Ouvrir avec l'app";
+"Preview" = "Aperçu";
+"Finder" = "Finder";

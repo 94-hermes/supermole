@@ -15,7 +15,26 @@ public struct ExplainAnswers: Decodable, Sendable, Equatable {
         public let what: String?
         public let ifDeleted: String?
         public let advice: String?
+        /// The AI would like to read inside before being sure.
+        public let needsExploration: Bool?
+        /// The answer came from reading the files (a deep look).
+        public let explored: Bool?
+        /// Claude or Codex.
+        public let provider: String?
         public let answeredAt: String?
+
+        /// When the answer was given, from the store's RFC 3339 timestamp.
+        public var answeredDate: Date? {
+            answeredAt.flatMap { Self.timestamp.date(from: $0) ?? Self.wholeSeconds.date(from: $0) }
+        }
+
+        nonisolated(unsafe) private static let timestamp: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+
+        nonisolated(unsafe) private static let wholeSeconds = ISO8601DateFormatter()
     }
 
     public static func storeURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
