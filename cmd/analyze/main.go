@@ -19,7 +19,9 @@ import (
 )
 
 var (
-	jsonMode = flag.Bool("json", false, "output analysis as JSON instead of TUI")
+	jsonMode        = flag.Bool("json", false, "output analysis as JSON instead of TUI")
+	explainItems    = flag.String("explain", "", "explain a JSON array of items with the AI and print JSON")
+	explainDeepFlag = flag.Bool("deep", false, "with --explain, let the AI read inside the one item")
 )
 
 // usageText is the help every other Mole subcommand prints by hand. The Go flag
@@ -31,6 +33,9 @@ Explore disk usage. Without PATH, scans a machine-wide overview.
 
 Options:
   --json          Output the analysis as JSON instead of the interactive TUI
+  --explain ITEMS Ask the AI about a JSON array of {"path","label","size"}
+                  items (what the E key does) and print the answers as JSON
+  --deep          With --explain, let the AI read inside the one item
   -h, --help      Show this help message
 
 Examples:
@@ -66,6 +71,13 @@ func parseArgs(args []string, stdout, stderr io.Writer) (int, bool) {
 func main() {
 	if code, keepGoing := parseArgs(os.Args[1:], os.Stdout, os.Stderr); !keepGoing {
 		os.Exit(code)
+	}
+	if *explainItems != "" {
+		os.Exit(runExplainMain(*explainItems, *explainDeepFlag))
+	}
+	if *explainDeepFlag {
+		fmt.Fprintln(os.Stderr, "--deep only works with --explain")
+		os.Exit(1)
 	}
 
 	abs, isOverview, err := resolveScanTarget(os.Getenv("MO_ANALYZE_PATH"), flag.Args())
