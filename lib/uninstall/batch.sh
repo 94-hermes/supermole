@@ -2427,6 +2427,14 @@ _batch_preview_and_confirm() {
         if [[ ${#running_apps[@]} -gt 0 ]]; then
             removal_note+=" ${YELLOW}[Running]${NC}"
         fi
+        # --yes: the caller named each app by its exact path and showed this
+        # plan itself (Supermole.app after its JSON preview), so nothing is
+        # asked; personal data is what --with-data selected. Everything after
+        # the prompt (admin session, identity rechecks, Trash) still runs.
+        if [[ "${MOLE_UNINSTALL_CONFIRMED:-0}" == "1" ]]; then
+            echo -e "${PURPLE}${ICON_ARROW}${NC} ${removal_note}, confirmed with --yes"
+            break
+        fi
         [[ ${#_review_personal_paths[@]} -eq 0 ]] || echo -e "${GRAY}D${NC} choose personal data"
 
         # A read from a non-terminal fails and used to become an empty key,

@@ -561,6 +561,50 @@ assert plan["blocked"] == [{"name": "Vendor App", "vendor": "Acme"}] and plan["m
     run_non_tty_confirmation piped 1
 }
 
+# --yes with no terminal and no test flag: the preview confirms itself for
+# a plain app, and still opens the admin session first for a Homebrew cask.
+run_yes_confirmation() {
+    run env -u MOLE_TEST_NO_AUTH -u MOLE_TEST_MODE HOME="$HOME/yes-$1" PROJECT_ROOT="$PROJECT_ROOT" \
+        KIND="$1" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/ui/menu_paginated.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+app="$HOME/Applications/Example.app"
+mkdir -p "$app"
+running_apps=() sudo_apps=() brew_cask_apps=() leftover_notes=()
+if [[ "$KIND" == brew ]]; then
+    app_details=("Example|$app|com.example.app|12|||false|false|true|example||||none||||")
+    brew_cask_apps=(Example)
+else
+    app_details=("Example|$app|com.example.app|12|||false|false|false|||||none||||")
+fi
+total_estimated_size=12
+get_path_size_kb() { printf '0\n'; }
+calculate_total_size() { printf '0\n'; }
+ensure_sudo_session() { printf 'SUDO_ASKED\n'; return 1; }
+rc=0
+MOLE_UNINSTALL_CONFIRMED=1 _batch_preview_and_confirm < /dev/null || rc=$?
+printf 'RC=%s\n' "$rc"
+[[ -d "$app" ]] || exit 1
+SH
+}
+
+@test "--yes confirms a named app without a terminal" {
+    run_yes_confirmation plain
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"RC=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"confirmed with --yes"* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *"interactive terminal"* && "$output" != *SUDO_ASKED* ]] || { echo "$output"; return 1; }
+}
+
+@test "--yes still opens the admin session before removing a Homebrew cask" {
+    run_yes_confirmation brew
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *SUDO_ASKED* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"Admin access denied"* && "$output" == *"RC=1"* ]] || { echo "$output"; return 1; }
+}
+
 @test "with-data emulator holdbacks stay selectable and ordinary data stays selected" {
     run env HOME="$HOME/emulator-holdbacks" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SH'
 set -euo pipefail

@@ -7072,6 +7072,7 @@ batch_uninstall_applications() {
         IFS='|' read -r _ row _ <<< "$row"
         printf 'SELECTED:%s\n' "$row"
     done
+    printf 'CONFIRMED=%s\n' "${MOLE_UNINSTALL_CONFIRMED:-unset}"
 }
 main "$@" < /dev/null
 EOF
@@ -7095,6 +7096,32 @@ EOF
     [ "$status" -eq 1 ] || return 1
     [[ "$output" == *"Not an installed app: /Applications/Gone.app"* ]] || return 1
     [[ "$output" != *"SELECTED:"* ]]
+}
+
+@test "uninstall --yes confirms only apps named by path" {
+    run_uninstall_main_by_path --yes /Applications/Slack.app
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"SELECTED:/Applications/Slack.app"* && "$output" == *"CONFIRMED=1"* ]] || return 1
+
+    # A name can match apps nobody reviewed, so --yes refuses it before scanning.
+    run_uninstall_main_by_path --yes Slack
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"needs the apps to uninstall as bundle paths"* ]] || return 1
+    [[ "$output" != *"SCANNED"* ]] || return 1
+
+    run_uninstall_main_by_path --yes
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"needs the apps to uninstall as bundle paths"* ]] || return 1
+    [[ "$output" != *"SCANNED"* ]]
+}
+
+@test "an inherited confirmation never stands in for --yes" {
+    MOLE_UNINSTALL_CONFIRMED=1 run_uninstall_main_by_path /Applications/Slack.app
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"CONFIRMED=0"* ]]
 }
 
 # Runs main where the batch prints its human preview and writes a stand-in

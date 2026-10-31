@@ -2116,6 +2116,8 @@ main() {
     MOLE_UNINSTALL_WITH_DATA=0
     # Only --json turns the preview into a JSON plan, never the environment.
     unset MOLE_UNINSTALL_PLAN_JSON_FILE
+    # Only the --yes flag confirms without asking, never the environment.
+    MOLE_UNINSTALL_CONFIRMED=0
 
     # Parse flags and collect app name arguments
     local -a app_name_args=()
@@ -2143,6 +2145,9 @@ main() {
                 ;;
             "--json")
                 json_mode=1
+                ;;
+            "--yes")
+                MOLE_UNINSTALL_CONFIRMED=1
                 ;;
             "--whitelist")
                 echo "Unknown uninstall option: $arg" >&2
@@ -2177,6 +2182,14 @@ main() {
     if [[ $list_mode -eq 1 ]]; then
         uninstall_list_apps
         return $?
+    fi
+
+    # --yes confirms for a caller that showed the plan itself, so it takes
+    # exact bundle paths only: a name can match apps nobody reviewed.
+    if [[ "$MOLE_UNINSTALL_CONFIRMED" == "1" ]] &&
+        [[ ${#app_name_args[@]} -eq 0 || $path_arg_count -ne ${#app_name_args[@]} ]]; then
+        echo "mo uninstall --yes needs the apps to uninstall as bundle paths, such as /Applications/Slack.app." >&2
+        exit 1
     fi
 
     if [[ $json_mode -eq 1 ]]; then
