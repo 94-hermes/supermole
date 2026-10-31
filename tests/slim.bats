@@ -770,6 +770,91 @@ exec /usr/bin/codesign \"\$@\""
 	[[ "$output" == *ENTER_CONFIRMED* ]]
 }
 
+# Runs main without a terminal over two scanned apps (Small is running),
+# recording which ones would be slimmed; slim_one_app is stubbed, so no
+# bundle is touched. NO_APPS=1 makes the scan find nothing.
+run_slim_main() {
+	run slim_env MOLE_SLIM_TEST_HOST_ARM64=1 APPS="$APPS_ROOT" NO_APPS="${NO_APPS:-0}" /bin/bash -c '
+		source "$1"
+		shift
+		collect_slim_candidates() {
+			echo SCANNED >&2
+			[[ "$NO_APPS" != 1 ]] || return 1
+			SLIM_APP_PATHS=("$APPS/Big Thing.app" "$APPS/Small.app")
+			SLIM_APP_NAMES=("Big Thing" Small)
+			SLIM_APP_BYTES=(2048000 4096)
+		}
+		slim_app_is_running() { [[ "$1" == */Small.app ]]; }
+		slim_one_app() { echo "SLIMMED:${SLIM_APP_NAMES[$1]}"; total_slimmed=$((total_slimmed + 1)); }
+		main "$@" < /dev/null
+	' bash "$PROJECT_ROOT/bin/slim.sh" "$@"
+}
+
+@test "slim --dry-run --json lists the scan for front ends and nothing else" {
+	run_slim_main --dry-run --json
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" != *"DRY RUN"* && "$output" != *SLIMMED* ]] || { echo "$output"; return 1; }
+	printf '%s\n' "${lines[${#lines[@]}-1]}" | APPS="$APPS_ROOT" python3 -c '
+import json, os, sys
+apps = os.environ["APPS"]
+report = json.load(sys.stdin)
+assert report == {"apps": [
+    {"name": "Big Thing", "path": apps + "/Big Thing.app", "intel_bytes": 2048000, "running": False},
+    {"name": "Small", "path": apps + "/Small.app", "intel_bytes": 4096, "running": True},
+], "total_intel_bytes": 2052096}, report
+' || { echo "$output"; return 1; }
+
+	NO_APPS=1 run_slim_main --dry-run --json
+	[ "$status" -eq 0 ] || return 1
+	[[ "${lines[${#lines[@]}-1]}" == '{"apps": [], "total_intel_bytes": 0}' ]] || { echo "$output"; return 1; }
+}
+
+@test "slim --yes slims exactly the apps named by path without a terminal" {
+	run_slim_main --yes "$APPS_ROOT/Small.app/" "$APPS_ROOT/Small.app"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$(grep -c '^SLIMMED:' <<< "$output")" -eq 1 ]] || { echo "$output"; return 1; }
+	[[ "$output" == *"SLIMMED:Small"* ]] || return 1
+
+	# Several apps print one numbered line each, the progress a front end reads.
+	run_slim_main --yes "$APPS_ROOT/Big Thing.app" "$APPS_ROOT/Small.app"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"[1/2] Big Thing"* && "$output" == *"[2/2] Small"* ]] || { echo "$output"; return 1; }
+
+	# Without --yes, no terminal still only lists.
+	run_slim_main
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"Run mo slim in a terminal"* && "$output" != *SLIMMED* ]] || { echo "$output"; return 1; }
+}
+
+@test "slim --yes refuses a path the scan did not offer before slimming anything" {
+	run_slim_main --yes "$APPS_ROOT/Small.app" "$APPS_ROOT/Gone.app"
+	[ "$status" -eq 1 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Not an app mo slim can slim now: $APPS_ROOT/Gone.app"* ]] || { echo "$output"; return 1; }
+	[[ "$output" != *SLIMMED* ]] || return 1
+
+	NO_APPS=1 run_slim_main --yes "$APPS_ROOT/Small.app"
+	[ "$status" -eq 1 ] || return 1
+	[[ "$output" != *SLIMMED* ]]
+}
+
+@test "slim refuses --yes without paths, paths without --yes and JSON without a preview before scanning" {
+	local -a request
+	local requests=(
+		"--yes|needs the apps to slim as bundle paths"
+		"$APPS_ROOT/Small.app|takes app paths only with --yes"
+		"--json|only describes a preview"
+		"--dry-run --yes $APPS_ROOT/Small.app|use --dry-run alone to preview"
+	)
+	local entry
+	for entry in "${requests[@]}"; do
+		read -r -a request <<< "${entry%%|*}"
+		run_slim_main "${request[@]}"
+		[ "$status" -eq 1 ] || { echo "$entry: $output"; return 1; }
+		[[ "$output" == *"${entry#*|}"* ]] || { echo "$entry: $output"; return 1; }
+		[[ "$output" != *SCANNED* && "$output" != *SLIMMED* ]] || { echo "$entry: $output"; return 1; }
+	done
+}
+
 @test "slim summary lists slimmed apps and groups kept apps by reason" {
 	run slim_env /bin/bash -c '
 		source "$1"

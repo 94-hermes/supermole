@@ -46,6 +46,8 @@ SLIM_APP_BYTES=()
 SLIM_APP_IDENTITIES=()
 SLIM_APP_TEAMS=()
 SLIM_APP_PLANS=()
+# The apps --yes names, as indices into the scan results.
+SLIM_SELECTED_INDICES=()
 
 total_slimmed=0
 total_freed_bytes=0
@@ -65,6 +67,9 @@ show_slim_help() {
     echo ""
     echo "Options:"
     echo "  --dry-run, -n     List apps and reclaimable space without changes"
+    echo "  --json            With --dry-run, print the list as JSON"
+    echo "  --yes APP...      Slim exactly the apps named by bundle path, without"
+    echo "                    asking; nothing is preselected"
     echo "  --debug           Show why apps were skipped"
     echo "  -h, --help        Show this help message"
 }
@@ -518,6 +523,54 @@ print_slim_list() {
     printf '\n%s apps, %s of Intel code\n' "${#SLIM_APP_PATHS[@]}" "$(bytes_to_human "$total")"
 }
 
+# `--dry-run --json`: the list for front ends (Supermole.app), largest first,
+# with whether each app is running now (slimming would refuse it).
+print_slim_json() {
+    local i total=0 running separator=""
+    printf '{"apps": ['
+    for ((i = 0; i < ${#SLIM_APP_PATHS[@]}; i++)); do
+        running=false
+        slim_app_is_running "${SLIM_APP_PATHS[i]}" && running=true
+        printf '%s{"name": %s, "path": %s, "intel_bytes": %s, "running": %s}' "$separator" \
+            "$(mole_json_string "${SLIM_APP_NAMES[i]}")" "$(mole_json_string "${SLIM_APP_PATHS[i]}")" \
+            "${SLIM_APP_BYTES[i]}" "$running"
+        separator=", "
+        total=$((total + SLIM_APP_BYTES[i]))
+    done
+    printf '], "total_intel_bytes": %s}\n' "$total"
+}
+
+# `--yes <paths>`: the indices of exactly the apps named, from this run's
+# scan, in SLIM_SELECTED_INDICES. A path the scan did not offer (gone,
+# whitelisted, already thin, or never eligible) refuses the whole request
+# before any app is touched.
+slim_select_paths() {
+    SLIM_SELECTED_INDICES=()
+    local requested i found chosen
+    for requested in "$@"; do
+        while [[ "$requested" == */ && "$requested" != "/" ]]; do
+            requested="${requested%/}"
+        done
+        found=""
+        for ((i = 0; i < ${#SLIM_APP_PATHS[@]}; i++)); do
+            if [[ "${SLIM_APP_PATHS[i]}" == "$requested" ]]; then
+                found=$i
+                break
+            fi
+        done
+        if [[ -z "$found" ]]; then
+            printf 'Not an app mo slim can slim now: %s\n' "$(mole_terminal_safe_text "$requested")" >&2
+            SLIM_SELECTED_INDICES=()
+            return 1
+        fi
+        for chosen in "${SLIM_SELECTED_INDICES[@]+"${SLIM_SELECTED_INDICES[@]}"}"; do
+            [[ "$chosen" != "$found" ]] || continue 2
+        done
+        SLIM_SELECTED_INDICES+=("$found")
+    done
+    return 0
+}
+
 record_slim_failure() {
     local app="$1" reason="$2"
     local name="${app##*/}"
@@ -842,7 +895,8 @@ slim_preflight() {
 }
 
 main() {
-    local arg
+    local arg json_mode=0 confirmed=0
+    local -a requested_paths=()
     for arg in "$@"; do
         case "$arg" in
             "--help" | "-h")
@@ -851,6 +905,9 @@ main() {
                 ;;
             "--debug") export MO_DEBUG=1 ;;
             "--dry-run" | "-n") export MOLE_DRY_RUN=1 ;;
+            "--json") json_mode=1 ;;
+            "--yes") confirmed=1 ;;
+            /*) requested_paths+=("$arg") ;;
             *)
                 echo "Unknown option: $arg" >&2
                 echo "Use 'mo slim --help' for supported options." >&2
@@ -859,11 +916,31 @@ main() {
         esac
     done
 
+    # Front ends (Supermole.app) preview with --dry-run --json, then slim the
+    # apps the person ticked with --yes and their paths. Nothing is ever
+    # preselected: --yes without paths, or paths without --yes, refuse.
+    if [[ $json_mode -eq 1 && "${MOLE_DRY_RUN:-0}" != "1" ]]; then
+        echo "mo slim --json only describes a preview; add --dry-run." >&2
+        exit 1
+    fi
+    if [[ $confirmed -eq 1 && "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        echo "mo slim --yes slims apps; use --dry-run alone to preview." >&2
+        exit 1
+    fi
+    if [[ $confirmed -eq 1 && ${#requested_paths[@]} -eq 0 ]]; then
+        echo "mo slim --yes needs the apps to slim as bundle paths, such as /Applications/Slack.app." >&2
+        exit 1
+    fi
+    if [[ $confirmed -eq 0 && ${#requested_paths[@]} -gt 0 ]]; then
+        echo "mo slim takes app paths only with --yes." >&2
+        exit 1
+    fi
+
     local rc=0
     slim_preflight || rc=$?
     [[ $rc -eq 0 ]] || return 1
 
-    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" && $json_mode -eq 0 ]]; then
         echo -e "${YELLOW}${ICON_DRY_RUN} DRY RUN MODE${NC}, No apps will be changed"
         printf '\n'
     fi
@@ -873,31 +950,42 @@ main() {
     collect_slim_candidates || collect_rc=$?
     [[ -t 1 ]] && stop_inline_spinner
 
-    if [[ $collect_rc -ne 0 ]]; then
-        echo -e "${GREEN}${ICON_SUCCESS}${NC} No apps with Intel code to remove"
+    if [[ $json_mode -eq 1 ]]; then
+        print_slim_json
         return 0
     fi
-
-    # Without a terminal there is nobody to choose: list and stop.
-    if [[ "${MOLE_DRY_RUN:-0}" == "1" || ! -t 0 || ! -t 1 ]]; then
-        print_slim_list
-        if [[ "${MOLE_DRY_RUN:-0}" != "1" ]]; then
-            printf 'Run mo slim in a terminal to choose apps.\n'
-        fi
-        return 0
-    fi
-
-    hide_cursor
-    if ! select_slim_apps; then
-        show_cursor
-        printf '\n'
-        return 0
-    fi
-    show_cursor
 
     local -a indices=()
-    IFS=',' read -ra indices <<< "$MOLE_SELECTION_RESULT"
-    confirm_slim_selection "${indices[@]}" || return 0
+    if [[ $confirmed -eq 1 ]]; then
+        # The person chose these apps in the front end, from its preview.
+        slim_select_paths "${requested_paths[@]}" || return 1
+        indices=("${SLIM_SELECTED_INDICES[@]}")
+    else
+        if [[ $collect_rc -ne 0 ]]; then
+            echo -e "${GREEN}${ICON_SUCCESS}${NC} No apps with Intel code to remove"
+            return 0
+        fi
+
+        # Without a terminal there is nobody to choose: list and stop.
+        if [[ "${MOLE_DRY_RUN:-0}" == "1" || ! -t 0 || ! -t 1 ]]; then
+            print_slim_list
+            if [[ "${MOLE_DRY_RUN:-0}" != "1" ]]; then
+                printf 'Run mo slim in a terminal to choose apps.\n'
+            fi
+            return 0
+        fi
+
+        hide_cursor
+        if ! select_slim_apps; then
+            show_cursor
+            printf '\n'
+            return 0
+        fi
+        show_cursor
+
+        IFS=',' read -ra indices <<< "$MOLE_SELECTION_RESULT"
+        confirm_slim_selection "${indices[@]}" || return 0
+    fi
 
     log_operation_session_start "$MOLE_CURRENT_COMMAND"
     local idx slim_rc=0 current=0 before failed_before name prefix=""
@@ -912,7 +1000,8 @@ main() {
         [[ -t 1 ]] && start_inline_spinner "${prefix}Slimming ${name}..."
         slim_one_app "$idx" || slim_rc=$?
         [[ -t 1 ]] && stop_inline_spinner
-        if [[ -t 1 && -n "$prefix" ]]; then
+        # Without a terminal (--yes) this line is the front end's progress.
+        if [[ -n "$prefix" ]]; then
             if [[ $total_slimmed -gt $before ]]; then
                 printf '%b%s%b\n' "${GREEN}${ICON_SUCCESS}${NC} ${prefix}" "$name" " ${GRAY}, $(bytes_to_human "${SLIM_APP_BYTES[idx]}")${NC}"
             elif [[ ${#SLIM_FAILED_REASONS[@]} -gt $failed_before ]]; then
