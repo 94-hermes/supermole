@@ -1,0 +1,6 @@
+[
+  {"name": "Slack", "bundle_id": "com.example.slack", "source": "App", "uninstall_name": "Slack", "path": "/Applications/Slack.app", "size": "188.7MB", "size_kb": 184320, "last_used_epoch": 1790000000},
+  {"name": "Maccy", "bundle_id": "com.example.maccy", "source": "Homebrew", "uninstall_name": "maccy", "path": "/Applications/Maccy.app", "size": "10.6MB", "size_kb": 10336, "last_used_epoch": 1700000000},
+  {"name": "Cold Start", "bundle_id": "com.example.cold", "source": "App", "uninstall_name": "Cold Start", "path": "/Users/test/Applications/Cold Start.app", "size": "--", "size_kb": null, "last_used_epoch": null},
+  {"name": "atlas", "bundle_id": "com.example.atlas", "source": "App", "uninstall_name": "atlas", "path": "/Applications/atlas.app", "size": "188.7MB", "size_kb": 184320, "last_used_epoch": 1750000000}
+]

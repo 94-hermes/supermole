@@ -1,0 +1,4 @@
+{"apps": [
+  {"name": "Browser", "path": "/Applications/Browser.app", "intel_bytes": 861742768, "running": true},
+  {"name": "Notes Pro", "path": "/Users/test/Applications/Notes Pro.app", "intel_bytes": 4096, "running": false}
+], "total_intel_bytes": 861746864}

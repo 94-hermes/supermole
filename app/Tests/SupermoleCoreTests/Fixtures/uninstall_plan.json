@@ -1,0 +1,12 @@
+{"dry_run": true, "with_data": true, "total_size_kb": 196640, "apps": [
+  {"name": "Slack", "path": "/Applications/Slack.app", "bundle_id": "com.example.slack", "homebrew_cask": null, "running": true, "needs_admin": false, "steam_managed": false, "size_kb": 184320,
+   "notes": ["Shared leftovers kept (other copies unchecked)"],
+   "leftovers": [{"path": "/Users/test/Library/Caches/com.example.slack", "size_kb": 2048}],
+   "system": [],
+   "review_only": [{"path": "/Library/LaunchDaemons/com.example.slack.helper.plist", "size_kb": 4}],
+   "personal_data": {"remove": [{"path": "/Users/test/Library/Application Support/Slack", "size_kb": 1024}, {"path": "/Users/test/Library/Preferences/com.example.slack.plist", "size_kb": null}],
+                     "keep": [{"path": "/Users/test/Library/Group Containers/group.com.example.slack"}]}},
+  {"name": "Maccy", "path": "/Applications/Maccy.app", "bundle_id": "com.example.maccy", "homebrew_cask": "maccy", "running": false, "needs_admin": true, "steam_managed": false, "size_kb": 10336,
+   "notes": [], "leftovers": [], "system": [], "review_only": [],
+   "personal_data": {"remove": [], "keep": []}}
+], "blocked": [{"name": "Vendor Suite", "vendor": "Acme"}], "manual": [{"name": "Odd App"}]}

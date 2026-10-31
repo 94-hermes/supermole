@@ -9,7 +9,6 @@
 "History" = "Historique";
 "Settings" = "Réglages";
 "Coming soon" = "Bientôt disponible";
-"Remove apps with everything they leave behind, and slim the ones that carry code your Mac never runs." = "Supprime des apps avec tout ce qu'elles laissent derrière elles, et allège celles qui contiennent du code que ton Mac n'utilise jamais.";
 
 /* First launch */
 "Welcome to Supermole" = "Bienvenue dans Supermole";
@@ -134,3 +133,59 @@
 "Open file" = "Ouvrir avec l'app";
 "Preview" = "Aperçu";
 "Finder" = "Finder";
+
+/* Apps: uninstall and slim down */
+"Going to the Trash with the files listed: %@. Open apps are quit first." = "Part à la Corbeille avec les fichiers listés : %@. Les apps ouvertes sont d'abord quittées.";
+"%@ is still installed." = "%@ est toujours installée.";
+"Needs your administrator password: %@. Supermole will ask for it in a coming version." = "Mot de passe administrateur nécessaire : %@. Supermole saura le demander dans une prochaine version.";
+"%@ needs its own uninstaller from %@." = "%1$@ a besoin de son propre désinstalleur, fourni par %2$@.";
+"%lld selected" = "%lld cochée(s)";
+"%lld selected · %@" = "%lld cochée(s) · %@";
+"Also remove my data in these apps" = "Supprimer aussi mes données dans ces apps";
+"Back to apps" = "Retour aux apps";
+"Checking what each app leaves behind…" = "Recherche de ce que chaque app laisse derrière elle…";
+"Each app is rebuilt on a copy that must pass Apple's checks before it replaces the app." = "Chaque app est refaite sur une copie qui doit passer les contrôles d'Apple avant de la remplacer.";
+"Each app is rebuilt on a copy that must pass Apple's signature and Gatekeeper checks before it replaces the app; the original goes to the Trash. Open apps are skipped. An app update brings the Intel code back." = "Chaque app est refaite sur une copie qui doit passer les contrôles de signature et Gatekeeper d'Apple avant de la remplacer ; l'originale part à la Corbeille. Les apps ouvertes sont laissées de côté. Une mise à jour de l'app remet le code Intel.";
+"Everything listed below goes to the Trash." = "Tout ce qui est listé ci-dessous part à la Corbeille.";
+"Homebrew" = "Homebrew";
+"Intel code in your apps" = "Code Intel dans tes apps";
+"Last used" = "Dernière utilisation";
+"Left alone" = "Laissées de côté";
+"Listing your apps…" = "Liste de tes apps…";
+"Looking for apps to slim…" = "Recherche des apps à alléger…";
+"Many apps also carry code for older Intel Macs, which yours never runs. Supermole lists them first; nothing changes until you choose apps and confirm." = "Beaucoup d'apps contiennent aussi du code pour les anciens Mac Intel, que le tien n'utilise jamais. Supermole les liste d'abord ; rien ne change tant que tu n'as pas choisi des apps et confirmé.";
+"Move %@ to the Trash in the Finder; Supermole does not move it from where it is." = "Mets %@ à la Corbeille depuis le Finder ; Supermole ne la déplace pas de là où elle est.";
+"No app carries Intel code Supermole can remove." = "Aucune app ne contient de code Intel que Supermole peut retirer.";
+"No app matches." = "Aucune app ne correspond.";
+"No app was slimmed." = "Aucune app n'a été allégée.";
+"Nothing is changed. This takes about twenty seconds." = "Rien n'est modifié. Cela prend une vingtaine de secondes.";
+"Nothing is removed. This takes a few seconds per app." = "Rien n'est supprimé. Cela prend quelques secondes par app.";
+"Open now: Supermole quits it first." = "Ouverte en ce moment : Supermole la quitte d'abord.";
+"Open: quit it before slimming, or it is skipped." = "Ouverte : quitte-la avant d'alléger, sinon elle est laissée de côté.";
+"Remove apps with everything they leave behind." = "Supprime des apps avec tout ce qu'elles laissent derrière elles.";
+"Remove the Intel code your Mac never runs from universal apps." = "Retire des apps universelles le code Intel que ton Mac n'utilise jamais.";
+"Search apps" = "Chercher une app";
+"See what goes" = "Voir ce qui part";
+"Settings, documents and saved states. Browser profiles and shared folders stay." = "Réglages, documents et états enregistrés. Les profils de navigateur et les dossiers partagés restent.";
+"Slim down your apps" = "Allège tes apps";
+"Slim these apps?" = "Alléger ces apps ?";
+"Slimming…" = "Allègement…";
+"Some apps were left unchanged; the details say why." = "Certaines apps n'ont pas été modifiées ; les détails disent pourquoi.";
+"Some apps were not removed." = "Certaines apps n'ont pas été supprimées.";
+"Sort by" = "Trier par";
+"System files to check yourself" = "Fichiers système à vérifier toi-même";
+"The apps and their files go to the Trash." = "Les apps et leurs fichiers partent à la Corbeille.";
+"The apps were removed." = "Les apps ont été supprimées.";
+"The personal data listed goes too." = "Les données personnelles listées partent aussi.";
+"Try again" = "Réessayer";
+"Uninstall apps" = "Désinstaller les apps";
+"Uninstall these apps?" = "Désinstaller ces apps ?";
+"Uninstalling frees" = "La désinstallation libère";
+"Uninstalling…" = "Désinstallation…";
+"Used %@" = "Utilisée %@";
+"Your data" = "Tes données";
+"kept" = "gardé";
+"left in place" = "laissé en place";
+"Tick the apps to remove" = "Coche les apps à retirer";
+"Supermole shows what goes before anything is removed." = "Supermole montre ce qui part avant de supprimer quoi que ce soit.";
+"Tick the apps to slim; nothing is ticked for you." = "Coche les apps à alléger ; rien n'est coché à ta place.";

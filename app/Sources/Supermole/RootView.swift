@@ -38,6 +38,7 @@ struct RootView: View {
     @State private var home = HomeModel()
     @State private var disk = DiskModel()
     @State private var clean = CleanModel()
+    @State private var apps = AppsModel()
     @State private var history = HistoryModel()
 
     var body: some View {
@@ -49,7 +50,7 @@ struct RootView: View {
                 }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
             } detail: {
-                SpaceView(space: space ?? .home, runner: runner, home: home, clean: clean, disk: disk) { space = $0 }
+                SpaceView(space: space ?? .home, runner: runner, home: home, clean: clean, apps: apps, disk: disk) { space = $0 }
                     .id(space)
                     .transition(.opacity.combined(with: .offset(y: 12)))
                     .animation(Motion.space, value: space)
@@ -87,6 +88,7 @@ private struct SpaceView: View {
     let runner: MoleRunner
     let home: HomeModel
     let clean: CleanModel
+    let apps: AppsModel
     let disk: DiskModel
     let navigate: (AppSpace) -> Void
 
@@ -99,10 +101,7 @@ private struct SpaceView: View {
         case .clean:
             CleanView(runner: runner, model: clean)
         case .apps:
-            UpcomingView(
-                space: space,
-                summary: "Remove apps with everything they leave behind, and slim the ones that carry code your Mac never runs."
-            )
+            AppsView(runner: runner, model: apps)
         }
     }
 }
