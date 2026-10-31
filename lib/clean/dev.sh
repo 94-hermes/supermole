@@ -44,7 +44,7 @@ clean_tool_cache() {
 
     if [[ -n "$cache_path" ]] && is_path_whitelisted "$cache_path"; then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $description · would skip (whitelist)"
+            mole_dry_run_line "$description · would skip (whitelist)"
             note_activity
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} $description · skipped (whitelist)"
@@ -101,7 +101,7 @@ clean_tool_cache() {
             return "$command_rc"
         fi
     else
-        echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $description · would clean"
+        mole_dry_run_line "$description · would clean"
         note_activity
     fi
     return 0
@@ -285,7 +285,7 @@ clean_github_cli_cache() {
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} GitHub CLI cache · would clean"
+        mole_dry_run_line "GitHub CLI cache · would clean"
         note_activity
         return 0
     fi
@@ -348,7 +348,7 @@ clean_conda_metadata_caches() {
     )
     if conda_cache_whitelisted "${conda_pkg_roots[@]}"; then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} conda index/tarball/log caches · would skip (whitelist)"
+            mole_dry_run_line "conda index/tarball/log caches · would skip (whitelist)"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} conda index/tarball/log caches · skipped (whitelist)"
             note_activity
@@ -494,7 +494,7 @@ clean_pnpm_stores() {
     if pnpm_process_blocks_prune; then
         debug_log "pnpm process running or process state unknown, skipping store prune"
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} pnpm cache · would skip (pnpm busy)"
+            mole_dry_run_line "pnpm cache · would skip (pnpm busy)"
             note_activity
         fi
         return 0
@@ -1098,7 +1098,7 @@ clean_go_cache_root() {
 
     if [[ $command_status -eq 0 ]]; then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $display_name · would clean"
+            mole_dry_run_line "$display_name · would clean"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} $display_name"
         fi
@@ -1197,10 +1197,10 @@ clean_dev_mise() {
         if [[ "${DRY_RUN:-false}" != "true" ]]; then
             clean_tool_cache "mise cache" "$mise_cache_path" run_with_timeout "$MOLE_TIMEOUT_PKG_CLEANUP_SEC" mise cache clear || return $?
         elif is_path_whitelisted "$mise_cache_path"; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} mise cache · would skip (whitelist)"
+            mole_dry_run_line "mise cache · would skip (whitelist)"
             note_activity
         else
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} mise cache · would clean"
+            mole_dry_run_line "mise cache · would clean"
             note_activity
         fi
         # The owner command is authoritative, including failure and timeout.
@@ -2020,7 +2020,7 @@ clean_xcode_system_coresimulator_caches() {
         if [[ "$cleanable_count" -gt 0 ]]; then
             local total_size_human
             total_size_human=$(bytes_to_human "$((total_size_kb * 1024))")
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Xcode Simulator system cache · would remove ${cleanable_count} entries (${total_size_human})"
+            mole_dry_run_line "Xcode Simulator system cache · would remove ${cleanable_count} entries (${total_size_human})"
             note_activity
         fi
         if [[ -n "$stop_reason" ]]; then
@@ -2302,7 +2302,7 @@ clean_xcode_device_support() {
                 done
                 if [[ "$dry_run_count" -gt 0 ]]; then
                     stale_size_human=$(bytes_to_human "$((stale_size_kb * 1024))")
-                    echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} ${display_name} · would remove ${dry_run_count} old versions (${stale_size_human}), keeping ${keep_count} most recent"
+                    mole_dry_run_line "${display_name} · would remove ${dry_run_count} old versions (${stale_size_human}), keeping ${keep_count} most recent"
                     note_activity
                 fi
                 if [[ -n "$dry_stop_reason" ]]; then
@@ -2891,7 +2891,7 @@ clean_dev_mobile() {
                             fi
                         done
                         stop_section_spinner
-                        echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Xcode unavailable simulators · would clean ${unavailable_before}, ${unavailable_size_human}"
+                        mole_dry_run_line "Xcode unavailable simulators · would clean ${unavailable_before}, ${unavailable_size_human}"
                         note_activity
                     else
                         debug_log "Xcode unavailable simulators already clean"
@@ -4036,7 +4036,7 @@ clean_dev_automation_browsers() {
 
     if [[ ${#leaked_processes[@]} -gt 0 ]]; then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Leaked automation browsers · would stop ${#leaked_processes[@]} processes ${YELLOW}dry${NC}"
+            mole_dry_run_line "Leaked automation browsers · would stop ${#leaked_processes[@]} processes ${YELLOW}dry${NC}"
         else
             local stopped=0
             local -a term_processes=()
@@ -4645,7 +4645,7 @@ clean_codex_desktop_staging() {
 
     if is_path_whitelisted "$staging_root"; then
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Codex Desktop update staging · would skip (whitelist)"
+            mole_dry_run_line "Codex Desktop update staging · would skip (whitelist)"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Codex Desktop update staging · skipped (whitelist)"
         fi
@@ -4916,7 +4916,7 @@ clean_codex_daemon_releases() {
 
     if is_path_whitelisted "$releases_dir"; then
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Codex daemon old releases · would skip (whitelist)"
+            mole_dry_run_line "Codex daemon old releases · would skip (whitelist)"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Codex daemon old releases · skipped (whitelist)"
         fi
@@ -5081,7 +5081,7 @@ clean_codex_crashpad_pending() {
         local cleaned_mb
         cleaned_mb=$(echo "$cleaned_kb" | awk '{printf "%.1f", $1/1024}' || echo "0.0")
         if [[ "$dry_run_mode" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Would clean $count stale Codex crash reports older than ${MOLE_ORPHAN_AGE_DAYS}d, about ${cleaned_mb}MB"
+            mole_dry_run_line "Would clean $count stale Codex crash reports older than ${MOLE_ORPHAN_AGE_DAYS}d, about ${cleaned_mb}MB"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Cleaned $count stale Codex crash reports older than ${MOLE_ORPHAN_AGE_DAYS}d, about ${cleaned_mb}MB"
         fi
@@ -5177,7 +5177,7 @@ clean_codex_runtimes() {
 
     if declare -f is_path_whitelisted > /dev/null 2>&1 && is_path_whitelisted "$runtime_root"; then
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Codex runtimes · would skip (whitelist)"
+            mole_dry_run_line "Codex runtimes · would skip (whitelist)"
             note_activity
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Codex runtimes · skipped (whitelist)"
@@ -5214,7 +5214,7 @@ clean_codex_runtimes() {
     while IFS= read -r -d '' runtime_dir; do
         if declare -f is_path_whitelisted > /dev/null 2>&1 && is_path_whitelisted "$runtime_dir"; then
             if [[ "${DRY_RUN:-false}" == "true" ]]; then
-                echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Codex runtimes · would skip (whitelist)"
+                mole_dry_run_line "Codex runtimes · would skip (whitelist)"
                 note_activity
             else
                 echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Codex runtimes · skipped (whitelist)"
@@ -5402,7 +5402,7 @@ clean_codex_marketplace_staging() {
 
     if is_path_whitelisted "$tmp_root" || is_path_whitelisted "$HOME/.codex"; then
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Codex marketplace staging · would skip (whitelist)"
+            mole_dry_run_line "Codex marketplace staging · would skip (whitelist)"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Codex marketplace staging · skipped (whitelist)"
         fi

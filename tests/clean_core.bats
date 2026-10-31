@@ -1191,6 +1191,165 @@ PLIST
     [ "$output" -eq 1 ]
 }
 
+@test "mo clean --dry-run --json prints only the preview the text list shows" {
+    local test_home
+    test_home="$(mktemp -d "${BATS_TEST_TMPDIR}/clean-json-home.XXXXXX")"
+    mkdir -p "$test_home/.config/mole"
+    local cache="$test_home/Library/Containers/com.example.generic/Data/Library/Caches"
+    local whitelisted="$test_home/Library/Containers/com.example.whitelisted/Data/Library/Caches"
+    mkdir -p "$cache" "$whitelisted"
+    dd if=/dev/zero of="$cache/plain.bin" bs=1024 count=1024 2> /dev/null
+    # A quote and a backslash in a name must still give valid JSON.
+    dd if=/dev/zero of="$cache/odd \"name\\.bin" bs=1024 count=512 2> /dev/null
+    dd if=/dev/zero of="$whitelisted/keep.bin" bs=1024 count=1024 2> /dev/null
+    printf '%s\n' "$whitelisted/keep.bin" > "$test_home/.config/mole/whitelist"
+    set_mock_sudo_uncached "$test_home"
+    set_mock_host_toolchains "$test_home"
+
+    run env HOME="$test_home" MOLE_TEST_MODE=0 MOLE_TEST_NO_AUTH=1 \
+        MOLE_TIMEOUT_MEDIUM_PROBE_SEC=30 \
+        PATH="$TEST_MOCK_BIN:$MOCK_TOOLCHAIN_BIN:$PATH" \
+        "$PROJECT_ROOT/mole" clean --dry-run --json
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+    local preview="$test_home/.config/mole/clean-list.txt"
+    run python3 - "$output" "$preview" "$cache" "$whitelisted" << 'PY'
+import json, re, sys
+report = json.loads(sys.argv[1])  # stdout must be the JSON and nothing else
+preview = open(sys.argv[2], encoding="utf-8", errors="replace").read()
+cache, whitelisted = sys.argv[3], sys.argv[4]
+paths = [entry["path"] for entry in report["entries"]]
+assert report["status"] == "complete", report["status"]
+assert cache + "/plain.bin" in paths, paths
+assert cache + '/odd "name\\.bin' in paths, paths
+assert not any(p.startswith(whitelisted) for p in paths), paths
+# The same rows and totals as the text preview.
+for path in paths:
+    assert path in preview, path
+items = int(re.search(r"^# Items: (\d+)$", preview, re.M).group(1))
+categories = int(re.search(r"^# Categories: (\d+)$", preview, re.M).group(1))
+assert report["items"] == items, (report["items"], items)
+assert report["categories"] == categories == len(report["sections"]), report["sections"]
+counted = [e for e in report["entries"] if not e["covered_by"]]
+assert report["total_size_kb"] == sum(e["size_kb"] for e in counted)
+assert report["total_size_kb"] == sum(s["size_kb"] for s in report["sections"])
+assert {e["section"] for e in report["entries"]} == {s["name"] for s in report["sections"]}
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    # The files are still there: a dry run.
+    [ -f "$cache/plain.bin" ]
+}
+
+@test "mo clean --dry-run --json lists the owner commands a real run would start" {
+    # brew and npm print their "would ..." lines without a ledger row; a front
+    # end that showed only the rows would hide what the real run does.
+    local test_home mock actions
+    test_home="$(mktemp -d "${BATS_TEST_TMPDIR}/clean-json-owner.XXXXXX")"
+    mock="$test_home/mockbin"
+    actions="$test_home/real-actions.log"
+    mkdir -p "$mock" "$test_home/.npm/_cacache/index-v5" "$test_home/.config/mole"
+    : > "$actions"
+    # shellcheck disable=SC2016 # The mock bodies expand when they run.
+    printf '#!/bin/bash\ncase "$*" in\n  --cache) echo "$HOME/Library/Caches/Homebrew" ;;\n  --prefix) echo "$HOME/homebrew" ;;\n  --cellar) echo "$HOME/homebrew/Cellar" ;;\n  "cleanup --prune=30 --dry-run")\n    echo "Would remove: $HOME/homebrew/Cellar/node/20.1.0 (2,000 files, 80MB)"\n    echo "==> This operation would free approximately 80MB of disk space." ;;\n  "autoremove --dry-run") ;;\n  *) echo "REAL brew $*" >> "%s" ;;\nesac\n' "$actions" > "$mock/brew"
+    # shellcheck disable=SC2016 # The mock bodies expand when they run.
+    printf '#!/bin/bash\ncase "$*" in\n  "config get cache") echo "$HOME/.npm" ;;\n  *) echo "REAL npm $*" >> "%s" ;;\nesac\n' "$actions" > "$mock/npm"
+    printf '#!/bin/bash\nexit 1\n' > "$mock/sudo"
+    chmod +x "$mock"/*
+
+    run env -u GOPATH -u GOCACHE -u GOMODCACHE HOME="$test_home" MOLE_TEST_MODE=0 MOLE_TEST_NO_AUTH=1 \
+        PATH="$mock:$PATH" "$PROJECT_ROOT/mole" clean --dry-run --json
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+    run python3 - "$output" << 'PY'
+import json, sys
+report = json.loads(sys.argv[1])
+lines = [(line["section"], line["text"]) for line in report["lines"]]
+assert ("Developer tools", "npm cache · would clean") in lines, lines
+assert ("Developer tools", "Homebrew cleanup · would free 80MB") in lines, lines
+# The versions brew cleanup removes, nested under their line.
+assert ("Developer tools", "  node 20.1.0 · 80MB") in lines, lines
+assert all("\x1b" not in text for _, text in lines), lines
+assert report["system_included"] is False, report["system_included"]
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    # A preview starts no owner command.
+    [ ! -s "$actions" ] || { cat "$actions"; return 1; }
+}
+
+@test "every clean dry-run line goes through mole_dry_run_line" {
+    # A line printed any other way would be missing from the JSON preview.
+    # shellcheck disable=SC2016 # Literal source text, not an expansion.
+    run grep -rnE 'ICON_DRY_RUN\}\$\{NC\}' "$PROJECT_ROOT/bin/clean.sh" "$PROJECT_ROOT/lib/clean"
+    [ "$status" -eq 1 ] || { echo "$output"; return 1; }
+    # And the helper is what prints them: the guard must not pass on nothing.
+    local calls
+    calls=$(cat "$PROJECT_ROOT/bin/clean.sh" "$PROJECT_ROOT"/lib/clean/*.sh | grep -cE 'mole_dry_run_(line|detail) ')
+    [ "$calls" -ge 51 ] || { echo "only $calls call sites"; return 1; }
+}
+
+@test "clean JSON preview counts a nested row under its ancestor only, per section too" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+
+DRY_RUN=true
+parent="$HOME/Library/Caches/Yarn"
+child="$parent/v6"
+slow="$HOME/Library/Caches/Slow"
+newline_dir="$HOME/Library/Caches/Odd"$'\n'"name"
+mkdir -p "$child" "$slow" "$newline_dir"
+CLEAN_PREVIEW_FINAL_FILE="$HOME/json-preview.txt"
+prepare_clean_preview_file
+
+CURRENT_SECTION="User essentials"
+record_dry_run_cleanup_target "$parent" 3072 1 true
+record_dry_run_cleanup_target "$slow" 0 1 false
+record_dry_run_cleanup_target "$newline_dir" 100 2 true
+CURRENT_SECTION="Developer tools"
+record_dry_run_cleanup_target "$child" 2048 4 true
+
+render_clean_preview_from_ledger
+render_clean_preview_json 0
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+    run python3 - "$output" "$HOME" << 'PY'
+import json, sys
+report = json.loads(sys.argv[1])
+home = sys.argv[2]
+entries = {e["path"]: e for e in report["entries"]}
+sections = {s["name"]: s for s in report["sections"]}
+child = entries[home + "/Library/Caches/Yarn/v6"]
+assert child["covered_by"] == home + "/Library/Caches/Yarn", child
+assert child["section"] == "Developer tools"
+# The covered child adds nothing, to the total or to its own section.
+assert sections["Developer tools"] == {"name": "Developer tools", "size_kb": 0, "items": 0}, sections
+assert sections["User essentials"]["size_kb"] == 3072 + 100, sections
+assert report["total_size_kb"] == 3172 and report["size_partial"] is True, report
+assert entries[home + "/Library/Caches/Slow"]["size_known"] is False
+assert home + "/Library/Caches/Odd\nname" in entries, list(entries)
+assert report["status"] == "complete"
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "mo clean --json without --dry-run refuses before cleaning anything" {
+    local test_home
+    test_home="$(mktemp -d "${BATS_TEST_TMPDIR}/clean-json-refuse.XXXXXX")"
+    local cache="$test_home/Library/Containers/com.example.generic/Data/Library/Caches"
+    mkdir -p "$cache"
+    echo "cache" > "$cache/data.bin"
+
+    # Test mode skips the real scans, so a broken gate cannot clean this
+    # machine's own caches; the gate runs before that early return.
+    run env HOME="$test_home" MOLE_TEST_MODE=1 MOLE_TEST_NO_AUTH=1 \
+        "$PROJECT_ROOT/mole" clean --json
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"only describes a preview; add --dry-run"* ]] || return 1
+    [ -f "$cache/data.bin" ]
+}
+
 @test "mo clean --dry-run keeps container totals and preview paths consistent (#1282)" {
     # This assertion depends on an exact total. Give it a private HOME so
     # hidden directories left by earlier cases cannot add cleanup candidates.

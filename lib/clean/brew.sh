@@ -87,11 +87,14 @@ show_brew_cleanup_preview() {
     freed=$(sed -n 's/^==> This operation would free approximately \(.*\) of disk space\.$/\1/p' "$preview_file" | tail -1)
     freed=$(mole_terminal_safe_text "$freed")
     if [[ -n "$freed" ]]; then
-        echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Homebrew cleanup · would free ${freed}"
+        mole_dry_run_line "Homebrew cleanup · would free ${freed}"
     else
-        echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Homebrew cleanup · ${#rows[@]} items"
+        mole_dry_run_line "Homebrew cleanup · ${#rows[@]} items"
     fi
-    printf '    %s\n' "${rows[@]}"
+    local row
+    for row in "${rows[@]}"; do
+        mole_dry_run_detail "$row"
+    done
 }
 
 # The window only counts a finished cleanup, which is the only one stamped.
@@ -315,7 +318,7 @@ clean_homebrew() {
                     echo -e "  ${GRAY}${ICON_WARNING}${NC} Homebrew cleanup preview timed out · run ${GRAY}brew cleanup --dry-run${NC} manually"
                     note_activity
                 else
-                    echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Homebrew · would cleanup"
+                    mole_dry_run_line "Homebrew · would cleanup"
                     note_activity
                 fi
                 # Autoremove sits after the window check in the real run too.

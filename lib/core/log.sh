@@ -221,6 +221,33 @@ mole_terminal_safe_text() {
     printf '%s' "$value"
 }
 
+# Prints one "would ..." line of a dry run. During `mo clean --dry-run --json`
+# (MOLE_DRY_RUN_LINES_FILE set) it also records the line, uncolored, with the
+# section it belongs to, so a front end shows everything the preview shows:
+# owner commands such as brew or npm print these lines without a ledger row.
+mole_dry_run_line() {
+    local message="$1"
+    echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} ${message}"
+    [[ -n "${MOLE_DRY_RUN_LINES_FILE:-}" ]] || return 0
+    _mole_record_dry_run_text "$(printf '%b' "$message")"
+}
+
+# A detail under a "would ..." line, such as one Homebrew version `brew
+# cleanup` would remove. Printed as given (no escape interpretation: the text
+# can come from a tool), and recorded indented so a front end nests it.
+mole_dry_run_detail() {
+    local detail="$1"
+    printf '    %s\n' "$detail"
+    _mole_record_dry_run_text "  $detail"
+}
+
+_mole_record_dry_run_text() {
+    [[ -n "${MOLE_DRY_RUN_LINES_FILE:-}" ]] || return 0
+    local plain
+    plain=$(printf '%s' "$1" | LC_ALL=C sed $'s/\033\\[[0-9;]*m//g')
+    printf '%s\0%s\0' "${CURRENT_SECTION:-}" "$plain" >> "$MOLE_DRY_RUN_LINES_FILE"
+}
+
 # Phase-level performance timing, gated behind MO_DEBUG=1.
 # Uses perl for millisecond precision; falls back to date +%s.
 debug_timer_start() {

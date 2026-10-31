@@ -35,6 +35,12 @@ if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
 fi
 PROTECT_FINDER_METADATA=false
 EXTERNAL_VOLUME_TARGET=""
+# --json (with --dry-run): stdout carries only the preview as JSON, written
+# to this file by perform_cleanup and printed when the run ends.
+CLEAN_JSON=false
+CLEAN_JSON_FILE=""
+# Only --json sets the lines file; an inherited value must not pick a file.
+unset MOLE_DRY_RUN_LINES_FILE
 IS_M_SERIES=$([[ "$(uname -m)" == "arm64" ]] && echo "true" || echo "false")
 
 # Whitelist and preview belong to the invoking user even when the whole
@@ -519,6 +525,108 @@ render_clean_preview_from_ledger() {
     else
         DRY_RUN_TOTAL_PARTIAL=false
     fi
+}
+
+# A finished run's outcome, from perform_cleanup's cancel status: the word
+# front ends read in the JSON preview.
+clean_run_outcome() {
+    local cleanup_rc="$1"
+    if [[ $cleanup_rc -eq 0 ]]; then
+        printf 'complete'
+    elif mole_rc_timeout "$cleanup_rc"; then
+        printf 'timeout'
+    elif [[ $cleanup_rc -ge 128 ]]; then
+        printf 'interrupted'
+    else
+        printf 'incomplete'
+    fi
+}
+
+# The dry-run preview as JSON (mo clean --dry-run --json), from the same
+# deduplicated ledger and totals render_clean_preview_from_ledger produced.
+# Every entry keeps its section; a row inside another measured candidate
+# names it in covered_by and, as in the text preview, adds nothing to the
+# totals. Section totals follow the same rule. "lines" holds every "would ..."
+# line the text run printed (mole_dry_run_line), including owner commands and
+# process stops that have no ledger row, so a front end can show all of it.
+# "system_included" says whether the system section was previewed, which the
+# real run decides again on its own.
+render_clean_preview_json() {
+    local cleanup_rc="$1"
+    local identity size_kb count size_known section path covered_by
+    local -a section_names=() section_sizes=() section_items=()
+    local index found first_entry=true
+
+    printf '{\n  "status": '
+    mole_json_string "$(clean_run_outcome "$cleanup_rc")"
+    printf ',\n  "system_included": %s' "$([[ "$SYSTEM_CLEAN" == "true" ]] && echo true || echo false)"
+    printf ',\n  "total_size_kb": %d,\n  "size_partial": %s,\n  "items": %d,\n  "categories": %d,\n  "entries": [' \
+        "${total_size_cleaned:-0}" "${DRY_RUN_TOTAL_PARTIAL:-false}" "${files_cleaned:-0}" "${total_items:-0}"
+
+    if [[ -n "${CLEAN_PREVIEW_LEDGER_FILE:-}" && -f "$CLEAN_PREVIEW_LEDGER_FILE" ]]; then
+        while IFS= read -r -d '' identity &&
+            IFS= read -r -d '' size_kb &&
+            IFS= read -r -d '' count &&
+            IFS= read -r -d '' size_known &&
+            IFS= read -r -d '' section &&
+            IFS= read -r -d '' path &&
+            IFS= read -r -d '' covered_by; do
+            [[ "$size_kb" =~ ^[0-9]+$ ]] || size_kb=0
+            [[ "$count" =~ ^[0-9]+$ && "$count" -gt 0 ]] || count=1
+            [[ "$size_known" == "true" ]] || size_known=false
+
+            [[ "$first_entry" == "true" ]] || printf ','
+            first_entry=false
+            printf '\n    {"section": '
+            mole_json_string "$section"
+            printf ', "path": '
+            mole_json_string "$path"
+            printf ', "size_kb": %d, "size_known": %s, "count": %d, "covered_by": ' "$size_kb" "$size_known" "$count"
+            mole_json_string "$covered_by"
+            printf '}'
+
+            found=-1
+            for ((index = 0; index < ${#section_names[@]}; index++)); do
+                if [[ "${section_names[$index]}" == "$section" ]]; then
+                    found=$index
+                    break
+                fi
+            done
+            if [[ $found -lt 0 ]]; then
+                found=${#section_names[@]}
+                section_names+=("$section")
+                section_sizes+=(0)
+                section_items+=(0)
+            fi
+            if [[ -z "$covered_by" ]]; then
+                section_sizes[found]=$((section_sizes[found] + size_kb))
+                section_items[found]=$((section_items[found] + count))
+            fi
+        done < <(emit_deduplicated_dry_run_ledger)
+    fi
+
+    printf '\n  ],\n  "sections": ['
+    for ((index = 0; index < ${#section_names[@]}; index++)); do
+        [[ $index -eq 0 ]] || printf ','
+        printf '\n    {"name": '
+        mole_json_string "${section_names[$index]}"
+        printf ', "size_kb": %d, "items": %d}' "${section_sizes[$index]}" "${section_items[$index]}"
+    done
+
+    printf '\n  ],\n  "lines": ['
+    local line_section line_text first_line=true
+    if [[ -n "${MOLE_DRY_RUN_LINES_FILE:-}" && -f "$MOLE_DRY_RUN_LINES_FILE" ]]; then
+        while IFS= read -r -d '' line_section && IFS= read -r -d '' line_text; do
+            [[ "$first_line" == "true" ]] || printf ','
+            first_line=false
+            printf '\n    {"section": '
+            mole_json_string "$line_section"
+            printf ', "text": '
+            mole_json_string "$line_text"
+            printf '}'
+        done < "$MOLE_DRY_RUN_LINES_FILE"
+    fi
+    printf '\n  ]\n}\n'
 }
 
 read_clean_sudo_choice() {
@@ -1447,7 +1555,7 @@ _safe_clean_impl() {
         if [[ "$DRY_RUN" == "true" ]]; then
             local size_display
             size_display=$(colorize_human_size "$size_human")
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $description${NC} · ${count_note}${size_display} ${YELLOW}dry${NC}"
+            mole_dry_run_line "$description${NC} · ${count_note}${size_display} ${YELLOW}dry${NC}"
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$total_size_kb")
@@ -1904,6 +2012,10 @@ perform_cleanup() {
         summary_heading="Cleanup complete"
     fi
 
+    if [[ "$CLEAN_JSON" == "true" ]]; then
+        render_clean_preview_json "$cleanup_cancel_rc" > "$CLEAN_JSON_FILE"
+    fi
+
     local -a summary_details=()
     if [[ $cleanup_cancel_rc -ne 0 ]]; then
         local cancel_source=""
@@ -2158,6 +2270,9 @@ main() {
                 manage_whitelist "clean"
                 exit 0
                 ;;
+            "--json")
+                CLEAN_JSON=true
+                ;;
             "--select" | "--categories" | "--exclude")
                 echo "mo clean $1 was removed in this release." >&2
                 echo "Use 'mo clean --dry-run' to preview cleanup and 'mo clean --whitelist' to protect paths." >&2
@@ -2176,6 +2291,26 @@ main() {
         esac
         shift
     done
+
+    if [[ "$CLEAN_JSON" == "true" ]]; then
+        if [[ "$DRY_RUN" != "true" ]]; then
+            echo "mo clean --json only describes a preview; add --dry-run." >&2
+            exit 1
+        fi
+        CLEAN_JSON_FILE=$(create_temp_file) || exit 1
+        : > "$CLEAN_JSON_FILE"
+        MOLE_DRY_RUN_LINES_FILE=$(create_temp_file) || exit 1
+        : > "$MOLE_DRY_RUN_LINES_FILE"
+        # Background workers append their lines too.
+        export MOLE_DRY_RUN_LINES_FILE
+        local json_rc=0
+        # The human preview goes nowhere; only the JSON reaches stdout. A
+        # brace group keeps the run in this shell, and no child inherits the
+        # caller's pipe, so the reader sees EOF as soon as Mole exits.
+        { start_cleanup && perform_cleanup; } > /dev/null || json_rc=$?
+        cat "$CLEAN_JSON_FILE"
+        exit "$json_rc"
+    fi
 
     start_cleanup
     hide_cursor

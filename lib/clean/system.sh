@@ -1130,7 +1130,7 @@ clean_time_machine_failed_backups() {
                     if declare -f record_dry_run_cleanup_target > /dev/null 2>&1; then
                         record_dry_run_cleanup_target "$inprogress_file" "$size_kb" 1 true || continue
                     fi
-                    echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Incomplete backup: $backup_name${NC} · $(colorize_human_size "$size_human") ${YELLOW}dry${NC}"
+                    mole_dry_run_line "Incomplete backup: $backup_name${NC} · $(colorize_human_size "$size_human") ${YELLOW}dry${NC}"
                     tm_cleaned=$((tm_cleaned + 1))
                     note_activity
                     continue
@@ -1284,7 +1284,7 @@ clean_time_machine_failed_backups() {
                         if declare -f record_dry_run_cleanup_target > /dev/null 2>&1; then
                             record_dry_run_cleanup_target "$inprogress_file" "$size_kb" 1 true || continue
                         fi
-                        echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Incomplete APFS backup in $bundle_name: $backup_name${NC} · $(colorize_human_size "$size_human") ${YELLOW}dry${NC}"
+                        mole_dry_run_line "Incomplete APFS backup in $bundle_name: $backup_name${NC} · $(colorize_human_size "$size_human") ${YELLOW}dry${NC}"
                         tm_cleaned=$((tm_cleaned + 1))
                         note_activity
                         continue

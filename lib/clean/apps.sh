@@ -101,7 +101,7 @@ clean_ds_store_tree() {
         size_human=$(bytes_to_human "$total_bytes")
         local size_kb=$(((total_bytes + 1023) / 1024))
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $label${NC} · ${YELLOW}$file_count files, $size_human dry${NC}"
+            mole_dry_run_line "$label${NC} · ${YELLOW}$file_count files, $size_human dry${NC}"
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$size_kb")
@@ -896,7 +896,7 @@ clean_orphaned_app_data() {
     if [[ $orphaned_count -gt 0 ]]; then
         local orphaned_mb=$(echo "$total_orphaned_kb" | awk '{printf "%.1f", $1/1024}')
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Would clean $orphaned_count items, about ${orphaned_mb}MB"
+            mole_dry_run_line "Would clean $orphaned_count items, about ${orphaned_mb}MB"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Cleaned $orphaned_count items, about ${orphaned_mb}MB"
         fi
@@ -1922,7 +1922,7 @@ clean_orphaned_system_services() {
         stop_section_spinner
 
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Orphaned services · ${YELLOW}${orphaned_count} found dry${NC}"
+            mole_dry_run_line "Orphaned services · ${YELLOW}${orphaned_count} found dry${NC}"
             note_activity
         elif [[ $removed_count -gt 0 ]]; then
             local orphaned_kb_display
@@ -2155,7 +2155,7 @@ clean_orphaned_container_stubs() {
     stop_section_spinner
     if [[ $removed_count -gt 0 ]]; then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Orphaned app container stubs, ${YELLOW}${removed_count} stubs dry${NC}"
+            mole_dry_run_line "Orphaned app container stubs, ${YELLOW}${removed_count} stubs dry${NC}"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Orphaned app container stubs, ${GREEN}${removed_count} removed${NC}"
             note_activity

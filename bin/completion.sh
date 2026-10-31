@@ -17,7 +17,7 @@ for entry in "${MOLE_COMMANDS[@]}"; do
     command_names+=("${entry%%:*}")
 done
 command_words="${command_names[*]}"
-clean_option_words="--dry-run -n --external --whitelist --debug --help -h"
+clean_option_words="--dry-run -n --json --external --whitelist --debug --help -h"
 analyze_option_words="--json --help -h"
 history_option_words="--json --limit --help -h"
 purge_option_words="--paths --dry-run -n --yes --include-empty --debug --help -h"
@@ -38,6 +38,7 @@ emit_fish_completions() {
 
     printf '\n'
     printf 'complete -f -c %s -n "__fish_seen_subcommand_from clean" -l dry-run -s n -d "Preview cleanup without making changes"\n' "$cmd"
+    printf 'complete -f -c %s -n "__fish_seen_subcommand_from clean" -l json -d "With --dry-run, print the preview as JSON"\n' "$cmd"
     printf 'complete -c %s -n "__fish_seen_subcommand_from clean" -l external -r -a "(__fish_complete_directories)" -d "Clean OS metadata from an external volume"\n' "$cmd"
     printf 'complete -f -c %s -n "__fish_seen_subcommand_from clean" -l whitelist -d "Manage protected paths"\n' "$cmd"
     printf 'complete -f -c %s -n "__fish_seen_subcommand_from clean" -l debug -d "Show detailed logs"\n' "$cmd"
@@ -400,6 +401,7 @@ EOF
         printf '            _arguments \\\n'
         printf "                '--dry-run[Preview cleanup without making changes]' \\\\\n"
         printf "                '-n[Preview cleanup without making changes]' \\\\\n"
+        printf "                '--json[With --dry-run, print the preview as JSON]' \\\\\n"
         printf "                '--external[Clean OS metadata from an external volume]:path:_files -/' \\\\\n"
         printf "                '--whitelist[Manage protected paths]' \\\\\n"
         printf "                '--debug[Show detailed logs]' \\\\\n"
