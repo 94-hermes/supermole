@@ -560,6 +560,7 @@ slim_select_paths() {
         done
         if [[ -z "$found" ]]; then
             printf 'Not an app mo slim can slim now: %s\n' "$(mole_terminal_safe_text "$requested")" >&2
+            echo "Run mo slim --dry-run to see the apps it can slim." >&2
             SLIM_SELECTED_INDICES=()
             return 1
         fi

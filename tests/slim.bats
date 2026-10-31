@@ -829,7 +829,7 @@ assert report == {"apps": [
 @test "slim --yes refuses a path the scan did not offer before slimming anything" {
 	run_slim_main --yes "$APPS_ROOT/Small.app" "$APPS_ROOT/Gone.app"
 	[ "$status" -eq 1 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"Not an app mo slim can slim now: $APPS_ROOT/Gone.app"* ]] || { echo "$output"; return 1; }
+	[[ "$output" == *"Not an app mo slim can slim now: $APPS_ROOT/Gone.app"*"mo slim --dry-run"* ]] || { echo "$output"; return 1; }
 	[[ "$output" != *SLIMMED* ]] || return 1
 
 	NO_APPS=1 run_slim_main --yes "$APPS_ROOT/Small.app"

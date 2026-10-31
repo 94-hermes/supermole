@@ -1724,6 +1724,7 @@ match_apps_by_path() {
         done
         if [[ "$found" == "false" ]]; then
             printf 'Not an installed app: %s\n' "$(mole_terminal_safe_text "$requested")" >&2
+            echo "Run mo uninstall --list to see installed apps and their paths." >&2
             selected_apps=()
             return 1
         fi
@@ -1871,7 +1872,7 @@ match_apps_by_name() {
         fi
 
         if [[ "$found" == "false" ]]; then
-            echo -e "${YELLOW}Warning:${NC} No application found matching '$search_term'"
+            echo -e "${YELLOW}Warning:${NC} No application found matching '$search_term'" >&2
         fi
     done
 }
@@ -2061,7 +2062,8 @@ uninstall_named_apps() {
 
     if [[ ${#selected_apps[@]} -eq 0 ]]; then
         show_cursor
-        echo "No matching applications found."
+        echo "No matching applications found." >&2
+        echo "Run mo uninstall --list to see installed apps and the names they go by." >&2
         return 1
     fi
 
@@ -2086,7 +2088,14 @@ uninstall_named_apps() {
     # One confirmation, not two: batch_uninstall_applications renders the
     # full preview and asks there, after sizing and leftover discovery. A
     # y/N prompt here runs before that scan, so it cannot serve as review.
+    # A plain call keeps errexit inside the batch; when the caller runs this
+    # with errexit off (the JSON plan), the status is read right after.
     batch_uninstall_applications
+    local batch_rc=$?
+    [[ $batch_rc -eq 0 ]] || return "$batch_rc"
+    # An app the batch could not remove makes the command fail, so a caller
+    # without a terminal (--yes) learns it from the exit status.
+    [[ ${MOLE_UNINSTALL_LAST_FAILED_COUNT:-0} -eq 0 ]]
 }
 
 # `--dry-run --json <apps>`: the whole human preview goes to /dev/null and
@@ -2116,8 +2125,10 @@ main() {
     MOLE_UNINSTALL_WITH_DATA=0
     # Only --json turns the preview into a JSON plan, never the environment.
     unset MOLE_UNINSTALL_PLAN_JSON_FILE
-    # Only the --yes flag confirms without asking, never the environment.
+    # Only the --yes flag confirms without asking, never the environment,
+    # and only the plan --plan names may run.
     MOLE_UNINSTALL_CONFIRMED=0
+    MOLE_UNINSTALL_PLAN_DIGEST=""
 
     # Parse flags and collect app name arguments
     local -a app_name_args=()
@@ -2148,6 +2159,9 @@ main() {
                 ;;
             "--yes")
                 MOLE_UNINSTALL_CONFIRMED=1
+                ;;
+            --plan=*)
+                MOLE_UNINSTALL_PLAN_DIGEST="${arg#--plan=}"
                 ;;
             "--whitelist")
                 echo "Unknown uninstall option: $arg" >&2
@@ -2189,6 +2203,15 @@ main() {
     if [[ "$MOLE_UNINSTALL_CONFIRMED" == "1" ]] &&
         [[ ${#app_name_args[@]} -eq 0 || $path_arg_count -ne ${#app_name_args[@]} ]]; then
         echo "mo uninstall --yes needs the apps to uninstall as bundle paths, such as /Applications/Slack.app." >&2
+        exit 1
+    fi
+    # The plan a --yes run carries out is the one its preview showed.
+    if [[ "$MOLE_UNINSTALL_CONFIRMED" == "1" && ! "$MOLE_UNINSTALL_PLAN_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "mo uninstall --yes needs --plan=<plan_digest> from the mo uninstall --dry-run --json preview it confirms." >&2
+        exit 1
+    fi
+    if [[ "$MOLE_UNINSTALL_CONFIRMED" != "1" && -n "$MOLE_UNINSTALL_PLAN_DIGEST" ]]; then
+        echo "mo uninstall --plan only goes with --yes." >&2
         exit 1
     fi
 

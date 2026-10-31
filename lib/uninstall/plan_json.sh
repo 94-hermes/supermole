@@ -5,6 +5,51 @@
 # and measures rows through the same parallel preview workers, so the two
 # never disagree on what a real run would remove.
 
+# `--yes` refuses a plan that changed since the preview it confirms: the
+# preview returns this status, and the command exits with the second one
+# (EX_DATAERR) so a front end can preview again.
+readonly MOLE_UNINSTALL_PLAN_CHANGED=5
+readonly MOLE_UNINSTALL_PLAN_CHANGED_EXIT=65
+
+# The plan as the person approved it, as a SHA-256: the delete mode, the
+# personal-data choice and, per app, its path, bundle id and identity
+# (device, inode, mtime), whether it is running (it would be quit), needs an
+# administrator or is a Homebrew cask, then every path it removes, sorted.
+# Sizes stay out, since caches grow between the preview and the click.
+# Reads the batch preview's scope, like _uninstall_render_plan_json.
+# shellcheck disable=SC2154  # Arrays belong to the calling batch preview scope.
+_uninstall_plan_digest() {
+    local detail app_name app_path bundle_id needs_sudo_flag is_brew_cask app_identity
+    local running removed personal_path digest review_index=0
+    digest=$(
+        printf 'mole-uninstall-plan 1\n'
+        printf 'delete_mode=%s\n' "${MOLE_DELETE_MODE:-trash}"
+        printf 'with_data=%s\n' "${MOLE_UNINSTALL_WITH_DATA:-0}"
+        for detail in "${app_details[@]+"${app_details[@]}"}"; do
+            IFS='|' read -r app_name app_path bundle_id _ _ _ _ needs_sudo_flag is_brew_cask _ _ _ _ _ app_identity _ <<< "$detail"
+            running=false
+            if _uninstall_plan_json_listed "$app_name" "${running_apps[@]+"${running_apps[@]}"}"; then
+                running=true
+            fi
+            printf 'app=%s|%s|%s|running=%s|sudo=%s|brew=%s\n' \
+                "$app_path" "$bundle_id" "$app_identity" "$running" "$needs_sudo_flag" "$is_brew_cask"
+            removed="${_review_auto_files[review_index]-}"
+            while IFS= read -r personal_path; do
+                [[ -n "$personal_path" ]] || continue
+                if mole_identity_in_list "$personal_path" "${_review_selected_paths[@]+"${_review_selected_paths[@]}"}"; then
+                    removed=$(append_line "$removed" "$personal_path")
+                fi
+            done <<< "${_review_personal_files[review_index]-}"
+            [[ -z "$removed" ]] || printf '%s\n' "$removed" | LC_ALL=C sort | sed 's/^/remove=/'
+            review_index=$((review_index + 1))
+        done
+    ) || return 1
+    digest=$(printf '%s\n' "$digest" | LC_ALL=C shasum -a 256) || return 1
+    digest="${digest%% *}"
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n' "$digest"
+}
+
 # One measured row of the preview: {"path": ..., "size_kb": N or null}.
 _uninstall_plan_json_sized_row() {
     local path="$1" size_kb="" size_rc=0
@@ -149,9 +194,12 @@ _uninstall_render_plan_json() {
         manual=$(append_line "$manual" "{\"name\": $(mole_json_string "$manual_name")}")
     done
 
-    local with_data=false
+    local with_data=false plan_digest
     [[ "${MOLE_UNINSTALL_WITH_DATA:-0}" != "1" ]] || with_data=true
-    printf '{"dry_run": true, "with_data": %s, "total_size_kb": %s, "apps": %s, "blocked": %s, "manual": %s}\n' \
+    plan_digest=$(_uninstall_plan_digest) || return 1
+    printf '{"dry_run": true, "plan_digest": %s, "delete_mode": %s, "with_data": %s, "total_size_kb": %s, "apps": %s, "blocked": %s, "manual": %s}\n' \
+        "$(mole_json_string "$plan_digest")" \
+        "$(mole_json_string "${MOLE_DELETE_MODE:-trash}")" \
         "$with_data" \
         "$(mole_json_positive_or_null "${total_estimated_size:-0}")" \
         "$(_uninstall_plan_json_array "$_plan_json_apps")" \

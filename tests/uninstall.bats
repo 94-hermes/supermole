@@ -7072,7 +7072,8 @@ batch_uninstall_applications() {
         IFS='|' read -r _ row _ <<< "$row"
         printf 'SELECTED:%s\n' "$row"
     done
-    printf 'CONFIRMED=%s\n' "${MOLE_UNINSTALL_CONFIRMED:-unset}"
+    printf 'CONFIRMED=%s PLAN=%s\n' "${MOLE_UNINSTALL_CONFIRMED:-unset}" "${MOLE_UNINSTALL_PLAN_DIGEST:-}"
+    MOLE_UNINSTALL_LAST_FAILED_COUNT="${FAILED_APPS:-0}"
 }
 main "$@" < /dev/null
 EOF
@@ -7098,13 +7099,28 @@ EOF
     [[ "$output" != *"SELECTED:"* ]]
 }
 
-@test "uninstall --yes confirms only apps named by path" {
-    run_uninstall_main_by_path --yes /Applications/Slack.app
+@test "uninstall --yes confirms only apps named by path, with the plan it previewed" {
+    local plan
+    plan=$(printf 'a%.0s' {1..64})
+    run_uninstall_main_by_path --yes "--plan=$plan" /Applications/Slack.app
     [ "$status" -eq 0 ] || {
         echo "$output"
         return 1
     }
-    [[ "$output" == *"SELECTED:/Applications/Slack.app"* && "$output" == *"CONFIRMED=1"* ]] || return 1
+    [[ "$output" == *"SELECTED:/Applications/Slack.app"* && "$output" == *"CONFIRMED=1 PLAN=$plan"* ]] || return 1
+
+    # An app the batch could not remove fails the command.
+    FAILED_APPS=1 run_uninstall_main_by_path --yes "--plan=$plan" /Applications/Slack.app
+    [ "$status" -eq 1 ] || return 1
+
+    # No plan, a malformed one, or a plan without --yes: refused before scanning.
+    local request
+    for request in "--yes /Applications/Slack.app" "--yes --plan=abc /Applications/Slack.app" "--plan=$plan /Applications/Slack.app"; do
+        # shellcheck disable=SC2086  # each request is a list of words
+        run_uninstall_main_by_path $request
+        [ "$status" -eq 1 ] || { echo "$request: $output"; return 1; }
+        [[ "$output" == *"--plan"* && "$output" != *"SCANNED"* ]] || { echo "$request: $output"; return 1; }
+    done
 
     # A name can match apps nobody reviewed, so --yes refuses it before scanning.
     run_uninstall_main_by_path --yes Slack
@@ -7119,9 +7135,48 @@ EOF
 }
 
 @test "an inherited confirmation never stands in for --yes" {
-    MOLE_UNINSTALL_CONFIRMED=1 run_uninstall_main_by_path /Applications/Slack.app
+    MOLE_UNINSTALL_CONFIRMED=1 MOLE_UNINSTALL_PLAN_DIGEST="$(printf 'a%.0s' {1..64})" run_uninstall_main_by_path /Applications/Slack.app
     [ "$status" -eq 0 ] || return 1
-    [[ "$output" == *"CONFIRMED=0"* ]]
+    printf '%s\n' "$output" | grep -qx 'CONFIRMED=0 PLAN='
+}
+
+@test "a JSON plan that matches no app says so on stderr" {
+    run env NO_COLOR=1 HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+log_operation_session_start() { :; }
+scan_applications() { printf 'fixture\n' > "$HOME/apps.list"; printf '%s\n' "$HOME/apps.list"; }
+load_applications() { apps_data=("1700000000|/Applications/Slack.app|Slack|com.tinyspeck.slackmacgap|180MB|Today|184320"); }
+rc=0
+main --dry-run --json Nope < /dev/null > "$HOME/plan.out" 2> "$HOME/plan.err" || rc=$?
+printf 'RC=%s\n' "$rc"
+printf 'STDOUT=%s\n' "$(cat "$HOME/plan.out")"
+printf 'STDERR=%s\n' "$(cat "$HOME/plan.err")"
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"RC=1"* && "$output" == *$'STDOUT=\n'* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"STDERR="*"No matching applications found."*"mo uninstall --list"* ]] || { echo "$output"; return 1; }
+}
+
+@test "a batch that could not remove an app reports it for the exit status" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+_batch_scan_app_details() { app_details=("Example|/x/Example.app|com.example.app|1|||false|false|false|||||none||||"); }
+_batch_preview_and_confirm() { return 0; }
+_batch_execute_removals() { failed_count="$FAILED"; }
+_batch_render_summary() { :; }
+_batch_report_configuration_references() { :; }
+selected_apps=("1700000000|/x/Example.app|Example|com.example.app|1KB|Today|1")
+total_size_cleaned=0
+for FAILED in 1 0; do
+    batch_uninstall_applications < /dev/null > /dev/null
+    printf 'FAILED=%s LAST=%s\n' "$FAILED" "$MOLE_UNINSTALL_LAST_FAILED_COUNT"
+done
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"FAILED=1 LAST=1"* && "$output" == *"FAILED=0 LAST=0"* ]] || { echo "$output"; return 1; }
 }
 
 # Runs main where the batch prints its human preview and writes a stand-in

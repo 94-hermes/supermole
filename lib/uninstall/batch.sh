@@ -2427,11 +2427,29 @@ _batch_preview_and_confirm() {
         if [[ ${#running_apps[@]} -gt 0 ]]; then
             removal_note+=" ${YELLOW}[Running]${NC}"
         fi
-        # --yes: the caller named each app by its exact path and showed this
-        # plan itself (Supermole.app after its JSON preview), so nothing is
-        # asked; personal data is what --with-data selected. Everything after
-        # the prompt (admin session, identity rechecks, Trash) still runs.
+        # --yes: the caller named each app by its exact path and showed the
+        # JSON preview whose plan_digest it passes, so nothing is asked, but
+        # only this same plan may run; personal data is what --with-data
+        # selected. Everything after the prompt (admin session, identity
+        # rechecks, Trash) still runs.
         if [[ "${MOLE_UNINSTALL_CONFIRMED:-0}" == "1" ]]; then
+            local current_digest=""
+            current_digest=$(_uninstall_plan_digest) || return 1
+            if [[ "$current_digest" != "${MOLE_UNINSTALL_PLAN_DIGEST:-}" ]]; then
+                echo ""
+                log_error "The apps changed since the preview (opened, updated or new files); nothing was removed."
+                log_info "Preview again with mo uninstall --dry-run --json, then confirm its new plan_digest"
+                return "$MOLE_UNINSTALL_PLAN_CHANGED"
+            fi
+            # Without a terminal the admin prompt has nowhere to go: refuse
+            # here, with the cause, before ensure_sudo_session tries.
+            if [[ ! -t 0 && "${MOLE_DRY_RUN:-0}" != "1" ]] &&
+                { [[ ${#sudo_apps[@]} -gt 0 ]] || [[ ${#brew_cask_apps[@]} -gt 0 ]]; }; then
+                echo ""
+                log_error "These apps need an administrator password, which only a terminal can ask for; nothing was removed."
+                log_info "Run mo uninstall with the same apps in Terminal"
+                return 1
+            fi
             echo -e "${PURPLE}${ICON_ARROW}${NC} ${removal_note}, confirmed with --yes"
             break
         fi
@@ -3323,8 +3341,13 @@ _batch_log_brew_autoremove() {
     done <<< "$output"
 }
 
+# Apps the last batch could not remove, for callers that must report them in
+# their exit status (`mo uninstall --yes`); the interactive menu keeps going.
+MOLE_UNINSTALL_LAST_FAILED_COUNT=0
+
 batch_uninstall_applications() {
     local total_size_freed=0
+    MOLE_UNINSTALL_LAST_FAILED_COUNT=0
 
     # shellcheck disable=SC2154
     if [[ ${#selected_apps[@]} -eq 0 ]]; then
@@ -3435,6 +3458,9 @@ batch_uninstall_applications() {
     fi
     if mole_rc_timeout_or_signal "$_confirm_rc"; then
         _abort_uninstall_batch
+        if mole_rc_timeout "$_confirm_rc"; then
+            log_error "The uninstall preview timed out before finishing; nothing was removed"
+        fi
         return "$_confirm_rc"
     fi
     case $_confirm_rc in
@@ -3450,6 +3476,10 @@ batch_uninstall_applications() {
         4)
             _abort_uninstall_batch
             return 0
+            ;;
+        "$MOLE_UNINSTALL_PLAN_CHANGED")
+            _abort_uninstall_batch
+            return "$MOLE_UNINSTALL_PLAN_CHANGED_EXIT"
             ;;
         *)
             _abort_uninstall_batch
@@ -3557,5 +3587,6 @@ batch_uninstall_applications() {
     unset -f _restore_uninstall_traps
 
     total_size_cleaned=$((total_size_cleaned + total_size_freed))
+    MOLE_UNINSTALL_LAST_FAILED_COUNT=$failed_count
     unset failed_items
 }

@@ -490,6 +490,7 @@ import json, os, sys
 home = os.environ["HOME"]
 plan = json.load(sys.stdin)
 assert plan["dry_run"] is True and plan["with_data"] is False, plan
+assert len(plan["plan_digest"]) == 64 and plan["delete_mode"] == "trash", plan
 # Cache 1 KB + bundle 12; the second app has nothing but its bundle.
 assert plan["total_size_kb"] == 21, plan["total_size_kb"]
 example, two = plan["apps"]
@@ -561,48 +562,79 @@ assert plan["blocked"] == [{"name": "Vendor App", "vendor": "Acme"}] and plan["m
     run_non_tty_confirmation piped 1
 }
 
-# --yes with no terminal and no test flag: the preview confirms itself for
-# a plain app, and still opens the admin session first for a Homebrew cask.
+# --yes with no terminal and no test flag, as Supermole.app runs it: a JSON
+# preview gives the plan_digest, CHANGE alters the state before the --yes run
+# (none, leftover, running, data, mode), and KIND=brew makes the app a
+# Homebrew cask, which needs an administrator.
 run_yes_confirmation() {
-    run env -u MOLE_TEST_NO_AUTH -u MOLE_TEST_MODE HOME="$HOME/yes-$1" PROJECT_ROOT="$PROJECT_ROOT" \
-        KIND="$1" /bin/bash --noprofile --norc <<'SH'
+    run env -u MOLE_TEST_NO_AUTH -u MOLE_TEST_MODE HOME="$HOME/yes-$1-$2" PROJECT_ROOT="$PROJECT_ROOT" \
+        KIND="$1" CHANGE="$2" /bin/bash --noprofile --norc <<'SH'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/ui/menu_paginated.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
 app="$HOME/Applications/Example.app"
-mkdir -p "$app"
+cache="$HOME/Library/Caches/com.example.app"
+extra="$HOME/Library/Logs/Example"
+mkdir -p "$app" "$cache" "$extra"
 running_apps=() sudo_apps=() brew_cask_apps=() leftover_notes=()
+brew=false
 if [[ "$KIND" == brew ]]; then
-    app_details=("Example|$app|com.example.app|12|||false|false|true|example||||none||||")
+    brew=true
     brew_cask_apps=(Example)
-else
-    app_details=("Example|$app|com.example.app|12|||false|false|false|||||none||||")
 fi
+plan_row() {
+    printf 'Example|%s|com.example.app|12|%s||false|false|%s|example||||none|1:2:3||||' \
+        "$app" "$(printf '%s\n' "$@" | base64 | tr -d '\n')" "$brew"
+}
+app_details=("$(plan_row "$cache")")
 total_estimated_size=12
 get_path_size_kb() { printf '0\n'; }
 calculate_total_size() { printf '0\n'; }
 ensure_sudo_session() { printf 'SUDO_ASKED\n'; return 1; }
+
 rc=0
-MOLE_UNINSTALL_CONFIRMED=1 _batch_preview_and_confirm < /dev/null || rc=$?
+MOLE_UNINSTALL_PLAN_JSON_FILE="$HOME/plan.json" MOLE_DRY_RUN=1 _batch_preview_and_confirm < /dev/null > /dev/null || rc=$?
+[[ $rc -eq 4 ]] || { printf 'PREVIEW_RC=%s\n' "$rc"; exit 1; }
+digest=$(sed -n 's/.*"plan_digest": "\([0-9a-f]*\)".*/\1/p' "$HOME/plan.json")
+[[ ${#digest} -eq 64 ]] || { printf 'NO_DIGEST\n'; exit 1; }
+
+app_details=("$(plan_row "$cache")")
+case "$CHANGE" in
+    leftover) app_details=("$(plan_row "$cache" "$extra")") ;;
+    running) running_apps=(Example) ;;
+    data) export MOLE_UNINSTALL_WITH_DATA=1 ;;
+    mode) export MOLE_DELETE_MODE=permanent ;;
+esac
+rc=0
+MOLE_UNINSTALL_CONFIRMED=1 MOLE_UNINSTALL_PLAN_DIGEST="$digest" _batch_preview_and_confirm < /dev/null || rc=$?
 printf 'RC=%s\n' "$rc"
-[[ -d "$app" ]] || exit 1
+[[ -d "$app" && -d "$cache" && -d "$extra" ]] || exit 1
 SH
 }
 
-@test "--yes confirms a named app without a terminal" {
-    run_yes_confirmation plain
+@test "--yes confirms the previewed plan without a terminal" {
+    run_yes_confirmation plain none
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
-    [[ "$output" == *"RC=0"* ]] || { echo "$output"; return 1; }
-    [[ "$output" == *"confirmed with --yes"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"RC=0"* && "$output" == *"confirmed with --yes"* ]] || { echo "$output"; return 1; }
     [[ "$output" != *"interactive terminal"* && "$output" != *SUDO_ASKED* ]] || { echo "$output"; return 1; }
 }
 
-@test "--yes still opens the admin session before removing a Homebrew cask" {
-    run_yes_confirmation brew
+@test "--yes refuses a plan that changed since its preview" {
+    local change
+    for change in leftover running data mode; do
+        run_yes_confirmation plain "$change"
+        [ "$status" -eq 0 ] || { echo "$change: $output"; return 1; }
+        [[ "$output" == *"RC=5"* && "$output" == *"changed since the preview"* ]] || { echo "$change: $output"; return 1; }
+        [[ "$output" != *"confirmed with --yes"* ]] || { echo "$change: $output"; return 1; }
+    done
+}
+
+@test "--yes refuses an app that needs an administrator without a terminal, before asking" {
+    run_yes_confirmation brew none
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
-    [[ "$output" == *SUDO_ASKED* ]] || { echo "$output"; return 1; }
-    [[ "$output" == *"Admin access denied"* && "$output" == *"RC=1"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"RC=1"* && "$output" == *"only a terminal can ask"* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *SUDO_ASKED* && "$output" != *"confirmed with --yes"* ]] || { echo "$output"; return 1; }
 }
 
 @test "with-data emulator holdbacks stay selectable and ordinary data stays selected" {
