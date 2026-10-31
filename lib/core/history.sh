@@ -13,6 +13,8 @@ if [[ -z "${MOLE_BASE_LOADED:-}" ]]; then
     # shellcheck source=lib/core/base.sh
     source "$_MOLE_CORE_DIR/base.sh"
 fi
+# shellcheck source=lib/core/json.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/json.sh"
 
 readonly MOLE_HISTORY_DEFAULT_LIMIT=20
 readonly MOLE_HISTORY_MAX_LIMIT=200
@@ -588,79 +590,6 @@ history_size_label() {
     fi
 }
 
-history_json_escape() {
-    local value="${1:-}"
-    local LC_ALL=C
-    local char code idx width offset byte second_min second_max
-
-    idx=0
-    while [[ "$idx" -lt "${#value}" ]]; do
-        char="${value:$idx:1}"
-        case "$char" in
-            "\\") printf '%s' "\\\\" ;;
-            "\"") printf '%s' "\\\"" ;;
-            $'\b') printf '%s' "\\b" ;;
-            $'\f') printf '%s' "\\f" ;;
-            $'\n') printf '%s' "\\n" ;;
-            $'\r') printf '%s' "\\r" ;;
-            $'\t') printf '%s' "\\t" ;;
-            *)
-                printf -v code '%d' "'$char"
-                if [[ "$code" -lt 0 ]]; then
-                    code=$((code + 256))
-                fi
-                if [[ "$code" -lt 32 ]]; then
-                    printf '\\u%04x' "$code"
-                elif [[ "$code" -lt 128 ]]; then
-                    printf '%s' "$char"
-                else
-                    # Bash holds filename bytes, but JSON strings require UTF-8.
-                    # Keep canonical scalar sequences; replace each invalid byte.
-                    width=0
-                    second_min=128
-                    second_max=191
-                    if [[ "$code" -ge 194 && "$code" -le 223 ]]; then
-                        width=2
-                    elif [[ "$code" -ge 224 && "$code" -le 239 ]]; then
-                        width=3
-                        [[ "$code" -ne 224 ]] || second_min=160
-                        [[ "$code" -ne 237 ]] || second_max=159
-                    elif [[ "$code" -ge 240 && "$code" -le 244 ]]; then
-                        width=4
-                        [[ "$code" -ne 240 ]] || second_min=144
-                        [[ "$code" -ne 244 ]] || second_max=143
-                    fi
-                    if [[ $((idx + width)) -gt "${#value}" ]]; then
-                        width=0
-                    fi
-                    for ((offset = 1; offset < width; offset++)); do
-                        printf -v byte '%d' "'${value:$((idx + offset)):1}"
-                        byte=$((byte & 255))
-                        if [[ "$byte" -lt 128 || "$byte" -gt 191 ]] ||
-                            { [[ "$offset" -eq 1 ]] && [[ "$byte" -lt "$second_min" || "$byte" -gt "$second_max" ]]; }; then
-                            width=0
-                            break
-                        fi
-                    done
-                    if [[ "$width" -gt 0 ]]; then
-                        printf '%s' "${value:$idx:$width}"
-                        idx=$((idx + width))
-                        continue
-                    fi
-                    printf '%s' '\ufffd'
-                fi
-                ;;
-        esac
-        idx=$((idx + 1))
-    done
-}
-
-history_json_string() {
-    printf '"'
-    history_json_escape "${1:-}"
-    printf '"'
-}
-
 history_json_string_field() {
     local indent="$1"
     local key="$2"
@@ -668,7 +597,7 @@ history_json_string_field() {
     local suffix="${4-,}"
 
     printf '%s"%s": ' "$indent" "$key"
-    history_json_string "$value"
+    mole_json_string "$value"
     printf '%s\n' "$suffix"
 }
 
@@ -844,9 +773,9 @@ history_render_json() {
 
     printf '{\n'
     printf '  "logs": {"operations": '
-    history_json_string "$operations_log"
+    mole_json_string "$operations_log"
     printf ', "deletions": '
-    history_json_string "$deletions_log"
+    mole_json_string "$deletions_log"
     printf '},\n'
     printf '  "limit": %s,\n' "$limit"
     history_render_json_sessions "$limit"

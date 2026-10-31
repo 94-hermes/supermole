@@ -339,7 +339,7 @@ for _ in range(250):
     decoded = raw.decode("utf-8", errors="surrogateescape")
     expected = "".join("\ufffd" if 0xdc80 <= ord(c) <= 0xdcff else c for c in decoded)
     cases.append((raw, expected))
-script = b'source "$1/lib/core/history.sh"; shift; for value; do history_json_string "$value"; printf "\\n"; done'
+script = b'source "$1/lib/core/history.sh"; shift; for value; do mole_json_string "$value"; printf "\\n"; done'
 result = subprocess.run([b"/bin/bash", b"--noprofile", b"--norc", b"-c", script, b"history-test",
                          os.fsencode(os.environ["PROJECT_ROOT"]), *[v for v, _ in cases]],
                         capture_output=True, check=True, env=dict(os.environ, LC_ALL="C"))
