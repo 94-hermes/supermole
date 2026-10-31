@@ -61,7 +61,7 @@ struct DiskView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.spacing) {
                 HStack(alignment: .firstTextBaseline) {
-                    PageHeader(title: "Disk space", subtitle: model.result.map(subtitle))
+                    PageHeader(title: "Analyze", subtitle: model.result.map(subtitle))
                     if model.canGoBack {
                         Button {
                             model.back(using: runner)

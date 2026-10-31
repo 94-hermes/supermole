@@ -5,6 +5,7 @@ import Foundation
 /// the table does not know is shown as `mo` wrote it.
 enum MoleTerms {
     enum Context: String {
+        case section
         case place
         case health
         case issue

@@ -16,7 +16,7 @@ enum AppSpace: String, CaseIterable, Identifiable, Hashable {
         case .home: return "Home"
         case .clean: return "Clean up"
         case .apps: return "Apps"
-        case .disk: return "Disk space"
+        case .disk: return "Analyze"
         }
     }
 
@@ -37,6 +37,7 @@ struct RootView: View {
     // Kept for the window's life, so switching spaces never repeats a scan.
     @State private var home = HomeModel()
     @State private var disk = DiskModel()
+    @State private var clean = CleanModel()
     @State private var history = HistoryModel()
 
     var body: some View {
@@ -48,7 +49,7 @@ struct RootView: View {
                 }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
             } detail: {
-                SpaceView(space: space ?? .home, runner: runner, home: home, disk: disk) { space = $0 }
+                SpaceView(space: space ?? .home, runner: runner, home: home, clean: clean, disk: disk) { space = $0 }
                     .id(space)
                     .transition(.opacity.combined(with: .offset(y: 12)))
                     .animation(Motion.space, value: space)
@@ -85,6 +86,7 @@ private struct SpaceView: View {
     let space: AppSpace
     let runner: MoleRunner
     let home: HomeModel
+    let clean: CleanModel
     let disk: DiskModel
     let navigate: (AppSpace) -> Void
 
@@ -95,10 +97,7 @@ private struct SpaceView: View {
         case .disk:
             DiskView(runner: runner, model: disk)
         case .clean:
-            UpcomingView(
-                space: space,
-                summary: "Caches, leftovers of deleted apps, installer files, old build folders and system upkeep, previewed before anything goes."
-            )
+            CleanView(runner: runner, model: clean)
         case .apps:
             UpcomingView(
                 space: space,

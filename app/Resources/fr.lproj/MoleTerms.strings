@@ -1,6 +1,22 @@
 /* Words mo returns in English, keyed "<context>.<term>" (see MoleTerms.swift).
-   Places: cmd/analyze/main.go and insights.go. Health: cmd/status/metrics_health.go.
+   Sections: start_section in bin/clean.sh. Places: cmd/analyze/main.go and insights.go. Health: cmd/status/metrics_health.go.
    Battery: cmd/status/metrics_battery.go and System Information's condition. */
+
+"section.User essentials" = "Essentiels de l'utilisateur";
+"section.App caches" = "Caches d'apps";
+"section.App leftovers" = "Restes d'apps supprimées";
+"section.Application Support" = "Données d'applications";
+"section.Apps & utilities" = "Apps et utilitaires";
+"section.Browsers" = "Navigateurs";
+"section.Cloud & Office" = "Cloud et bureautique";
+"section.Developer tools" = "Outils de développement";
+"section.Device backups & firmware" = "Sauvegardes et firmwares d'appareils";
+"section.External volume" = "Disque externe";
+"section.Large files" = "Gros fichiers";
+"section.Project artifacts" = "Fichiers de projets";
+"section.System" = "Système";
+"section.Time Machine" = "Time Machine";
+"section.Virtualization" = "Virtualisation";
 
 "place.Home" = "Dossier personnel";
 "place.User Library" = "Bibliothèque de l'utilisateur";

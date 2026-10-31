@@ -1,0 +1,85 @@
+{
+  "status": "incomplete",
+  "total_size_kb": 5172,
+  "size_partial": true,
+  "items": 7,
+  "categories": 2,
+  "entries": [
+    {
+      "section": "User essentials",
+      "path": "/Users/test/Library/Caches/Yarn",
+      "size_kb": 3072,
+      "size_known": true,
+      "count": 1,
+      "covered_by": ""
+    },
+    {
+      "section": "User essentials",
+      "path": "/Users/test/.Trash",
+      "size_kb": 2000,
+      "size_known": true,
+      "count": 2,
+      "covered_by": ""
+    },
+    {
+      "section": "User essentials",
+      "path": "/Users/test/Library/Caches/Slow",
+      "size_kb": 0,
+      "size_known": false,
+      "count": 1,
+      "covered_by": ""
+    },
+    {
+      "section": "Developer tools",
+      "path": "/Users/test/Library/Caches/Yarn/v6",
+      "size_kb": 2048,
+      "size_known": true,
+      "count": 4,
+      "covered_by": "/Users/test/Library/Caches/Yarn"
+    },
+    {
+      "section": "Developer tools",
+      "path": "/Users/test/Library/Developer/Xcode/DerivedData",
+      "size_kb": 100,
+      "size_known": true,
+      "count": 3,
+      "covered_by": ""
+    }
+  ],
+  "sections": [
+    {
+      "name": "User essentials",
+      "size_kb": 5072,
+      "items": 4
+    },
+    {
+      "name": "Developer tools",
+      "size_kb": 100,
+      "items": 3
+    },
+    {
+      "name": "Browsers",
+      "size_kb": 0,
+      "items": 0
+    }
+  ],
+  "system_included": false,
+  "lines": [
+    {
+      "section": "User essentials",
+      "text": "User app cache \u00b7 3.1MB dry"
+    },
+    {
+      "section": "Developer tools",
+      "text": "npm cache \u00b7 would clean"
+    },
+    {
+      "section": "Developer tools",
+      "text": "Homebrew cleanup \u00b7 would free 80MB"
+    },
+    {
+      "section": "Browsers",
+      "text": "Chrome old versions \u00b7 would remove 2 old versions"
+    }
+  ]
+}

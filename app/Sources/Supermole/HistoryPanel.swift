@@ -99,7 +99,7 @@ private struct SessionRow: View {
         case "purge": return "Developer projects"
         case "installer": return "Installer files"
         case "slim": return "Slim apps"
-        case "analyze": return "Disk space"
+        case "analyze": return "Analyze"
         default: return LocalizedStringKey(command)
         }
     }

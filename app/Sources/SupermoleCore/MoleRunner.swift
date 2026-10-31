@@ -115,6 +115,21 @@ public struct MoleRunner: Sendable {
         return try MoleJSON.decode(type, from: output.stdout)
     }
 
+    /// Like `decode`, for commands that still print their JSON when they stop
+    /// early (an incomplete clean preview exits nonzero with its report): any
+    /// readable output wins, and only a run with none is an error.
+    public func decodeReport<Value: Decodable>(_ type: Value.Type, _ arguments: [String]) async throws -> Value {
+        let output = try await run(arguments)
+        if output.stdout.contains(where: { !Self.isWhitespace($0) }) {
+            return try MoleJSON.decode(type, from: output.stdout)
+        }
+        throw MoleError.failed(status: output.status, message: output.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func isWhitespace(_ byte: UInt8) -> Bool {
+        byte == 0x20 || byte == 0x0A || byte == 0x0D || byte == 0x09
+    }
+
     /// Streams the program's standard output line by line until it exits or
     /// the consumer stops listening, which terminates it. With
     /// `includeErrors`, standard error joins the stream; otherwise it is kept

@@ -118,3 +118,42 @@ final class MoleRunnerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
     }
 }
+
+final class MoleRunnerReportTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try FileManager.default.removeItem(at: directory)
+    }
+
+    private func fakeMo(_ body: String) throws -> MoleRunner {
+        let script = directory.appendingPathComponent("mo")
+        try Data("#!/bin/bash\n\(body)\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return MoleRunner(executable: script)
+    }
+
+    func testAReportPrintedBeforeAFailureIsStillRead() async throws {
+        let runner = try fakeMo(#"echo '{"sessions": [], "deletions": []}'; exit 124"#)
+
+        let report = try await runner.decodeReport(HistoryReport.self, [])
+
+        XCTAssertEqual(report.sessions, [])
+    }
+
+    func testARunWithNoReportFailsWithWhatMoSaid() async throws {
+        let runner = try fakeMo(#"echo "only describes a preview" >&2; exit 1"#)
+
+        do {
+            _ = try await runner.decodeReport(HistoryReport.self, [])
+            XCTFail("decodeReport succeeded without output")
+        } catch let error as MoleError {
+            XCTAssertEqual(error, .failed(status: 1, message: "only describes a preview"))
+        }
+    }
+}

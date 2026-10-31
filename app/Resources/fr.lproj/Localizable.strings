@@ -5,11 +5,10 @@
 "Home" = "Accueil";
 "Clean up" = "Nettoyer";
 "Apps" = "Apps";
-"Disk space" = "Espace disque";
+"Analyze" = "Analyser";
 "History" = "Historique";
 "Settings" = "Réglages";
 "Coming soon" = "Bientôt disponible";
-"Caches, leftovers of deleted apps, installer files, old build folders and system upkeep, previewed before anything goes." = "Caches, restes d'apps supprimées, fichiers d'installation, vieux dossiers de compilation et entretien du système : tout est montré avant d'être supprimé.";
 "Remove apps with everything they leave behind, and slim the ones that carry code your Mac never runs." = "Supprime des apps avec tout ce qu'elles laissent derrière elles, et allège celles qui contiennent du code que ton Mac n'utilise jamais.";
 
 /* First launch */
@@ -88,3 +87,32 @@
 "About" = "À propos";
 "Supermole is an unofficial fork of Mole, modified by Airkul. It is not affiliated with or endorsed by the Mole project." = "Supermole est un fork non officiel de Mole, modifié par Airkul. Il n'est ni affilié au projet Mole ni approuvé par lui.";
 "Mole on GitHub" = "Mole sur GitHub";
+
+/* Clean up */
+"Caches, leftovers and files your Mac no longer needs." = "Caches, restes et fichiers dont ton Mac n'a plus besoin.";
+"See what can be freed" = "Voir ce qui peut être libéré";
+"Supermole looks through caches, logs, leftovers of deleted apps and old downloads. Nothing is removed until you confirm." = "Supermole passe en revue les caches, les journaux, les restes d'apps supprimées et les vieux téléchargements. Rien n'est supprimé avant ta confirmation.";
+"Looking for what can go…" = "Recherche de ce qui peut partir…";
+"Nothing is removed. This takes a minute or two." = "Rien n'est supprimé. Cela prend une minute ou deux.";
+"Ready to free" = "Prêt à libérer";
+"at least" = "au moins";
+"%lld items in %lld categories" = "%lld éléments dans %lld catégories";
+"Analyze again" = "Analyser à nouveau";
+"The Trash is emptied too." = "La corbeille est vidée aussi.";
+"Part of the Mac could not be checked in time; Analyze again before cleaning." = "Une partie du Mac n'a pas pu être vérifiée à temps : analyse à nouveau avant de nettoyer.";
+"System caches need an administrator password; that part comes in a later version." = "Les caches système demandent un mot de passe administrateur : cette partie arrive dans une prochaine version.";
+"By category" = "Par catégorie";
+"%lld items" = "%lld éléments";
+"and %lld more" = "et %lld autres";
+"Clean up %@?" = "Nettoyer %@ ?";
+"Supermole does everything shown under each category, tool commands such as Homebrew or npm included. Caches rebuild themselves when apps need them." = "Supermole fait tout ce qui est affiché dans chaque catégorie, y compris les commandes d'outils comme Homebrew ou npm. Les caches se reconstruisent d'eux-mêmes quand les apps en ont besoin.";
+"The Trash will be emptied." = "La corbeille sera vidée.";
+"Cancel" = "Annuler";
+"Cleaning up…" = "Nettoyage en cours…";
+"Stop" = "Arrêter";
+"%@ freed" = "%@ libérés";
+"Your Mac was already clean." = "Ton Mac était déjà propre.";
+"The cleanup stopped early." = "Le nettoyage s'est arrêté avant la fin.";
+"Details" = "Détails";
+"System caches are included: an administrator session is open." = "Les caches système sont inclus : une session administrateur est ouverte.";
+"Tool commands" = "Commandes d'outils";

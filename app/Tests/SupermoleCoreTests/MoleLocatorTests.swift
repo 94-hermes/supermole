@@ -31,6 +31,12 @@ final class MoleLocatorTests: XCTestCase {
         XCTAssertEqual(locator.locate(), first)
     }
 
+    func testAnOverrideComesBeforeTheUsualPlaces() throws {
+        let checkout = try file("mole", executable: true)
+
+        XCTAssertEqual(MoleLocator(home: directory, override: checkout.path).locate(), checkout)
+    }
+
     func testNoCandidateMeansMoIsMissing() {
         XCTAssertNil(MoleLocator(candidates: [directory.appendingPathComponent("mo")]).locate())
     }
