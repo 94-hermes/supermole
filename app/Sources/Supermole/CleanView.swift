@@ -1,4 +1,3 @@
-import AppKit
 import Charts
 import Observation
 import SupermoleCore
@@ -17,14 +16,11 @@ final class CleanModel {
         case failed(String)
     }
 
-    /// How many lines of `mo clean`'s output the details keep.
-    static let logLength = 200
-
     private(set) var phase: Phase = .idle
     private(set) var preview: CleanPreview?
     private(set) var currentSection: String?
     private(set) var finishedSections: [String] = []
-    private(set) var log: [String] = []
+    private(set) var log = RunLog()
     private(set) var result: HistoryReport.Session?
     /// False when `mo clean` stopped early (timeout, interruption).
     private(set) var cleanCompleted = true
@@ -55,7 +51,7 @@ final class CleanModel {
         phase = .cleaning
         currentSection = nil
         finishedSections = []
-        log = []
+        log = RunLog()
         result = nil
         cleanCompleted = true
         task = Task {
@@ -101,12 +97,7 @@ final class CleanModel {
                 currentSection = section
             }
         }
-        let text = TerminalText.clean(line)
-        guard !text.isEmpty else { return }
-        log.append(text)
-        if log.count > Self.logLength {
-            log.removeFirst(log.count - Self.logLength)
-        }
+        log.append(line)
     }
 }
 
@@ -141,7 +132,14 @@ struct CleanView: View {
                     }
                     .entrance(1)
                 case .done:
-                    DoneCard(result: model.result, completed: model.cleanCompleted) {
+                    RunResultCard(
+                        result: model.result,
+                        completed: model.cleanCompleted,
+                        nothingFreed: "Your Mac was already clean.",
+                        stoppedEarly: "The cleanup stopped early.",
+                        actionTitle: "Analyze again",
+                        actionSymbol: "arrow.clockwise"
+                    ) {
                         model.scan(using: runner)
                     }
                     .entrance(1)
@@ -150,7 +148,7 @@ struct CleanView: View {
                     StartCard { model.scan(using: runner) }
                 }
                 if !model.log.isEmpty, model.phase == .cleaning || model.phase == .done {
-                    LogCard(lines: model.log).entrance(2)
+                    LogCard(lines: model.log.lines).entrance(2)
                 }
             }
             .padding(Theme.pagePadding)
@@ -230,24 +228,6 @@ private struct StartCard: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
-        }
-    }
-}
-
-private struct WorkingCard: View {
-    let title: LocalizedStringKey
-    let detail: LocalizedStringKey
-
-    var body: some View {
-        GlassCard {
-            HStack(spacing: 18) {
-                ProgressView().controlSize(.large)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.title3.weight(.semibold))
-                    Text(detail).foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
         }
     }
 }
@@ -412,7 +392,7 @@ private struct SectionRow: View {
                         Divider().padding(.vertical, 4)
                     }
                     ForEach(entries.prefix(Self.shownEntries)) { entry in
-                        EntryLine(entry: entry)
+                        PathLine(path: entry.path, note: PathLine.sizeNote(entry.sizeKnown ? entry.bytes : nil))
                     }
                     if entries.count > Self.shownEntries {
                         Text("and \(entries.count - Self.shownEntries) more").font(.caption).foregroundStyle(.secondary)
@@ -424,37 +404,6 @@ private struct SectionRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-    }
-}
-
-private struct EntryLine: View {
-    let entry: CleanPreview.Entry
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(verbatim: Self.displayPath(entry.path))
-                .font(.callout)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(verbatim: entry.sizeKnown ? Formatting.bytes(entry.bytes) : "—")
-                .font(.callout)
-                .monospacedDigit()
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-            .buttonStyle(.borderless)
-            .help("Show in Finder")
-        }
-    }
-
-    /// The path with the home folder written as ~.
-    private static func displayPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 }
 
@@ -489,66 +438,6 @@ private struct CleaningCard: View {
                         .foregroundStyle(Theme.teal)
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
-            }
-        }
-    }
-}
-
-private struct DoneCard: View {
-    let result: HistoryReport.Session?
-    let completed: Bool
-    let rescan: () -> Void
-
-    @State private var appeared = false
-
-    var body: some View {
-        GlassCard {
-            VStack(spacing: 14) {
-                Image(systemName: completed ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 54))
-                    .foregroundStyle(completed ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.amber))
-                    .scaleEffect(appeared ? 1 : 0.4)
-                    .opacity(appeared ? 1 : 0)
-                if let size = result?.size, let bytes = MoleText.bytes(fromHumanSize: size), bytes > 0 {
-                    Text("\(Formatting.bytes(bytes)) freed")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                } else {
-                    Text(completed ? "Your Mac was already clean." : "The cleanup stopped early.")
-                        .font(.title2.weight(.semibold))
-                }
-                if let actions = result?.actions {
-                    Text("\(actions.removed ?? 0) removed · \(actions.trashed ?? 0) to Trash")
-                        .foregroundStyle(.secondary)
-                }
-                Button(action: rescan) {
-                    Label("Analyze again", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.glass)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-        }
-        .onAppear { withAnimation(Motion.entrance.delay(0.15)) { appeared = true } }
-    }
-}
-
-/// What `mo clean` printed, for the curious.
-private struct LogCard: View {
-    let lines: [String]
-    @State private var isExpanded = false
-
-    var body: some View {
-        GlassCard(padding: 16) {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                ScrollView {
-                    Text(verbatim: lines.joined(separator: "\n"))
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 220)
-            } label: {
-                Label("Details", systemImage: "text.alignleft").foregroundStyle(.secondary)
             }
         }
     }

@@ -17,4 +17,16 @@ final class TerminalTextTests: XCTestCase {
         XCTAssertEqual(TerminalText.clean("Prêt ! supermole 1.65.1 est installé."), "Prêt ! supermole 1.65.1 est installé.")
         XCTAssertEqual(TerminalText.clean(""), "")
     }
+
+    func testTheRunLogKeepsTheLastCleanedLinesAndDropsBlankOnes() {
+        var log = RunLog(length: 2)
+        log.append("\u{1B}[0;32m✓\u{1B}[0m Removed Slack")
+        log.append("   ")
+        log.append("Moved to Trash")
+        log.append("Done")
+
+        XCTAssertEqual(log.lines, ["Moved to Trash", "Done"])
+        XCTAssertFalse(log.isEmpty)
+        XCTAssertTrue(RunLog().isEmpty)
+    }
 }
