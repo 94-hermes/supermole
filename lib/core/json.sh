@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mole - JSON strings for the commands that print JSON (history, clean).
+# Mole - JSON values for the commands that print JSON (history, clean, uninstall).
 
 set -euo pipefail
 
@@ -88,4 +88,14 @@ mole_json_string() {
     printf '"'
     mole_json_escape "${1:-}"
     printf '"'
+}
+
+# A positive whole number as JSON, or null when the value is not known yet
+# (empty, zero or not a number), for sizes and timestamps a scan may lack.
+mole_json_positive_or_null() {
+    if [[ "${1:-}" =~ ^[0-9]+$ && "$1" -gt 0 ]]; then
+        printf '%s' "$1"
+    else
+        printf 'null'
+    fi
 }

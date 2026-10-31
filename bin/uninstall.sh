@@ -1876,15 +1876,6 @@ match_apps_by_name() {
     done
 }
 
-# A positive whole number as JSON, or null when the scan has no value yet.
-uninstall_list_json_count() {
-    if [[ "${1:-}" =~ ^[0-9]+$ && "$1" -gt 0 ]]; then
-        printf '%s' "$1"
-    else
-        printf 'null'
-    fi
-}
-
 # Read-only listing: surface each installed app's display name, bundle id,
 # the exact name `mo uninstall` accepts, and its size (human-readable, and in
 # KB with the last-use epoch for front ends; null until the deferred metadata
@@ -1969,8 +1960,8 @@ uninstall_list_apps() {
                 "$(mole_json_string "$uninstall_name")" \
                 "$(mole_json_string "$app_path")" \
                 "$(mole_json_string "$size_display")" \
-                "$(uninstall_list_json_count "$size_kb")" \
-                "$(uninstall_list_json_count "$epoch")"
+                "$(mole_json_positive_or_null "$size_kb")" \
+                "$(mole_json_positive_or_null "$epoch")"
         done
         if [[ $first -eq 0 ]]; then
             printf '\n'
@@ -2035,6 +2026,85 @@ uninstall_list_apps() {
     return 0
 }
 
+# Uninstalls the apps named on the command line: <by_path> <app>... where
+# by_path is nonzero when every app is given as a bundle path. The batch
+# preview is the single confirmation (or the JSON plan).
+uninstall_named_apps() {
+    local by_path="$1"
+    shift
+    local apps_file=""
+    if ! apps_file=$(scan_applications); then
+        uninstall_abort "could not complete the application scan"
+        return 1
+    fi
+    if [[ ! -f "$apps_file" ]]; then
+        uninstall_abort "application scan produced no list"
+        return 1
+    fi
+    if ! load_applications "$apps_file"; then
+        rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
+        uninstall_abort "no applications available for uninstallation"
+        return 1
+    fi
+
+    local match_rc=0
+    if [[ $by_path -gt 0 ]]; then
+        match_apps_by_path "$@" || match_rc=$?
+    else
+        match_apps_by_name "$@"
+    fi
+    rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
+    if [[ $match_rc -ne 0 ]]; then
+        show_cursor
+        return 1
+    fi
+
+    if [[ ${#selected_apps[@]} -eq 0 ]]; then
+        show_cursor
+        echo "No matching applications found."
+        return 1
+    fi
+
+    show_cursor
+    clear_screen
+    local selection_count=${#selected_apps[@]}
+    echo -e "${BLUE}${ICON_CONFIRM}${NC} Matched ${selection_count} app(s):"
+    local index=1
+    for selected_app in "${selected_apps[@]}"; do
+        IFS='|' read -r _ app_path app_name _ size last_used _ <<< "$selected_app"
+        local safe_name
+        safe_name=$(mole_terminal_safe_text "$app_name")
+        local size_display
+        size_display=$(uninstall_normalize_size_display "$size" "$app_path")
+        local last_display
+        last_display=$(uninstall_normalize_last_used_display "$last_used")
+        printf "%d. %s  %s  |  Last: %s\n" "$index" "$safe_name" "$size_display" "$last_display"
+        ((index++))
+    done
+
+    printf '\n'
+    # One confirmation, not two: batch_uninstall_applications renders the
+    # full preview and asks there, after sizing and leftover discovery. A
+    # y/N prompt here runs before that scan, so it cannot serve as review.
+    batch_uninstall_applications
+}
+
+# `--dry-run --json <apps>`: the whole human preview goes to /dev/null and
+# only the plan reaches stdout. It is written to a temp file and printed at
+# the end, so no background child inherits the caller's pipe; an early stop
+# prints what was written with its own status.
+uninstall_plan_json() {
+    MOLE_UNINSTALL_PLAN_JSON_FILE=$(create_temp_file) || return 1
+    : > "$MOLE_UNINSTALL_PLAN_JSON_FILE"
+    local plan_rc=0
+    {
+        log_operation_session_start "uninstall"
+        uninstall_named_apps "$@"
+    } > /dev/null || plan_rc=$?
+    cat "$MOLE_UNINSTALL_PLAN_JSON_FILE"
+    return "$plan_rc"
+}
+
 main() {
     # Set current command for operation logging
     export MOLE_CURRENT_COMMAND="uninstall"
@@ -2044,10 +2114,12 @@ main() {
     export MOLE_DELETE_MODE="${MOLE_DELETE_MODE:-trash}"
     # Only the --with-data flag preselects personal data, never the environment.
     MOLE_UNINSTALL_WITH_DATA=0
+    # Only --json turns the preview into a JSON plan, never the environment.
+    unset MOLE_UNINSTALL_PLAN_JSON_FILE
 
     # Parse flags and collect app name arguments
     local -a app_name_args=()
-    local list_mode=0
+    local list_mode=0 json_mode=0
     for arg in "$@"; do
         case "$arg" in
             "--help" | "-h")
@@ -2068,6 +2140,9 @@ main() {
                 ;;
             "--list")
                 list_mode=1
+                ;;
+            "--json")
+                json_mode=1
                 ;;
             "--whitelist")
                 echo "Unknown uninstall option: $arg" >&2
@@ -2104,6 +2179,19 @@ main() {
         return $?
     fi
 
+    if [[ $json_mode -eq 1 ]]; then
+        if [[ "${MOLE_DRY_RUN:-0}" != "1" ]]; then
+            echo "mo uninstall --json only describes a preview; add --dry-run." >&2
+            exit 1
+        fi
+        if [[ ${#app_name_args[@]} -eq 0 ]]; then
+            echo "mo uninstall --json needs the apps to preview, by path or by name." >&2
+            exit 1
+        fi
+        uninstall_plan_json "$path_arg_count" "${app_name_args[@]}"
+        return $?
+    fi
+
     # Opened only after flags are parsed: --dry-run must reach the marker, and
     # --help, --list and a rejected flag change nothing worth a session.
     log_operation_session_start "uninstall"
@@ -2116,62 +2204,8 @@ main() {
 
     # Direct uninstall by app name
     if [[ ${#app_name_args[@]} -gt 0 ]]; then
-        local apps_file=""
-        if ! apps_file=$(scan_applications); then
-            uninstall_abort "could not complete the application scan"
-            return 1
-        fi
-        if [[ ! -f "$apps_file" ]]; then
-            uninstall_abort "application scan produced no list"
-            return 1
-        fi
-        if ! load_applications "$apps_file"; then
-            rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
-            uninstall_abort "no applications available for uninstallation"
-            return 1
-        fi
-
-        local match_rc=0
-        if [[ $path_arg_count -gt 0 ]]; then
-            match_apps_by_path "${app_name_args[@]}" || match_rc=$?
-        else
-            match_apps_by_name "${app_name_args[@]}"
-        fi
-        rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
-        if [[ $match_rc -ne 0 ]]; then
-            show_cursor
-            return 1
-        fi
-
-        if [[ ${#selected_apps[@]} -eq 0 ]]; then
-            show_cursor
-            echo "No matching applications found."
-            return 1
-        fi
-
-        show_cursor
-        clear_screen
-        local selection_count=${#selected_apps[@]}
-        echo -e "${BLUE}${ICON_CONFIRM}${NC} Matched ${selection_count} app(s):"
-        local index=1
-        for selected_app in "${selected_apps[@]}"; do
-            IFS='|' read -r _ app_path app_name _ size last_used _ <<< "$selected_app"
-            local safe_name
-            safe_name=$(mole_terminal_safe_text "$app_name")
-            local size_display
-            size_display=$(uninstall_normalize_size_display "$size" "$app_path")
-            local last_display
-            last_display=$(uninstall_normalize_last_used_display "$last_used")
-            printf "%d. %s  %s  |  Last: %s\n" "$index" "$safe_name" "$size_display" "$last_display"
-            ((index++))
-        done
-
-        printf '\n'
-        # One confirmation, not two: batch_uninstall_applications renders the
-        # full preview and asks there, after sizing and leftover discovery. A
-        # y/N prompt here runs before that scan, so it cannot serve as review.
-        batch_uninstall_applications
-        return 0
+        uninstall_named_apps "$path_arg_count" "${app_name_args[@]}"
+        return $?
     fi
 
     local first_scan=true

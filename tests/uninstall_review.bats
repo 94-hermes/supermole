@@ -442,6 +442,112 @@ SH
     grep -Fq "$expected_text" "$out" || { cat "$out"; return 1; }
 }
 
+# Renders the JSON plan, with no terminal and no test flag, for a Homebrew
+# app with a cache, personal data it shares with a second app, a review-only
+# system row and a note, beside an admin-only running app, a blocked app and
+# one left for manual removal. Prints only what the preview wrote.
+run_plan_json_fixture() {
+    run env -u MOLE_TEST_NO_AUTH -u MOLE_TEST_MODE HOME="$HOME/plan-json-$1" PROJECT_ROOT="$PROJECT_ROOT" \
+        WITH_DATA="$1" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/ui/menu_paginated.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+cache="$HOME/Library/Caches/com.example.app"
+data="$HOME/Library/Application Support/Example"
+review="$HOME/Fixture/LaunchDaemons/com.example.helper.plist"
+app="$HOME/Applications/Example.app"
+two="$HOME/Applications/Two.app"
+mkdir -p "$cache" "$data" "$app" "$two" "${review%/*}"
+touch "$review"
+encoded=$(printf '%s\n' "$cache" "$data" | base64 | tr -d '\n')
+two_encoded=$(printf '%s\n' "$data" | base64 | tr -d '\n')
+review_encoded=$(printf '%s\n' "$review" | base64 | tr -d '\n')
+app_details=(
+    "Example|$app|com.example.app|12|$encoded||true|false|true|example||$review_encoded||none||||"
+    "Two|$two|com.example.two|8|$two_encoded||true|true|false|||||none||||"
+)
+running_apps=(Two) sudo_apps=(Two) brew_cask_apps=(Example)
+leftover_notes=("$app|Shared leftovers kept (other copies unchecked)")
+blocked_apps=("Vendor App|Acme") manual_removal_apps=("Odd App")
+total_estimated_size=20
+get_path_size_kb() { printf '10\n'; }
+calculate_total_size() { if [[ -n "$1" ]]; then printf '1\n'; else printf '0\n'; fi; }
+MOLE_UNINSTALL_PLAN_JSON_FILE="$HOME/plan.json"
+rc=0
+MOLE_UNINSTALL_WITH_DATA="$WITH_DATA" MOLE_DRY_RUN=1 _batch_preview_and_confirm < /dev/null || rc=$?
+[[ $rc -eq 4 ]] || { printf 'RC=%s\n' "$rc"; exit 1; }
+[[ -d "$cache" && -d "$data" && -d "$app" && -f "$review" ]] || exit 1
+cat "$MOLE_UNINSTALL_PLAN_JSON_FILE"
+SH
+}
+
+@test "dry-run JSON plan describes the preview without rendering or asking" {
+    run_plan_json_fixture 0
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | HOME="$HOME/plan-json-0" python3 -c '
+import json, os, sys
+home = os.environ["HOME"]
+plan = json.load(sys.stdin)
+assert plan["dry_run"] is True and plan["with_data"] is False, plan
+# Cache 1 KB + bundle 12; the second app has nothing but its bundle.
+assert plan["total_size_kb"] == 21, plan["total_size_kb"]
+example, two = plan["apps"]
+assert example["name"] == "Example" and example["homebrew_cask"] == "example", example
+assert example["needs_admin"] is True and example["running"] is False, example
+assert example["size_kb"] == 12 and example["steam_managed"] is False, example
+assert example["notes"] == ["Shared leftovers kept (other copies unchecked)"], example
+assert example["leftovers"] == [{"path": home + "/Library/Caches/com.example.app", "size_kb": 10}], example
+assert example["review_only"] == [{"path": home + "/Fixture/LaunchDaemons/com.example.helper.plist", "size_kb": 10}], example
+assert example["system"] == [], example
+data = home + "/Library/Application Support/Example"
+assert example["personal_data"] == {"remove": [], "keep": [{"path": data}]}, example
+# Shared personal data is listed once, under the first app.
+assert two["personal_data"] == {"remove": [], "keep": []}, two
+assert two["needs_admin"] is True and two["running"] is True and two["homebrew_cask"] is None, two
+assert plan["blocked"] == [{"name": "Vendor App", "vendor": "Acme"}], plan
+assert plan["manual"] == [{"name": "Odd App"}], plan
+' || { echo "$output"; return 1; }
+}
+
+@test "dry-run JSON plan with --with-data lists the personal data it removes" {
+    run_plan_json_fixture 1
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | HOME="$HOME/plan-json-1" python3 -c '
+import json, os, sys
+plan = json.load(sys.stdin)
+data = os.environ["HOME"] + "/Library/Application Support/Example"
+assert plan["with_data"] is True and plan["total_size_kb"] == 22, plan
+assert plan["apps"][0]["personal_data"] == {"remove": [{"path": data, "size_kb": 10}], "keep": []}, plan
+' || { echo "$output"; return 1; }
+}
+
+@test "dry-run JSON plan still names blocked apps when nothing is left to remove" {
+    run env HOME="$HOME/plan-json-empty" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/ui/menu_paginated.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+mkdir -p "$HOME"
+_batch_scan_app_details() { blocked_apps=("Vendor App|Acme"); manual_removal_apps=("Odd App"); }
+selected_apps=("1700000000|/Applications/Vendor.app|Vendor App|com.acme.vendor|1MB|Today|1024")
+MOLE_UNINSTALL_PLAN_JSON_FILE="$HOME/plan.json"
+: > "$MOLE_UNINSTALL_PLAN_JSON_FILE"
+rc=0
+MOLE_DRY_RUN=1 batch_uninstall_applications < /dev/null > /dev/null || rc=$?
+printf 'RC=%s\n' "$rc"
+cat "$MOLE_UNINSTALL_PLAN_JSON_FILE"
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == RC=1* ]] || { echo "$output"; return 1; }
+    printf '%s\n' "${output#*$'\n'}" | python3 -c '
+import json, sys
+plan = json.load(sys.stdin)
+assert plan["apps"] == [] and plan["total_size_kb"] is None, plan
+assert plan["blocked"] == [{"name": "Vendor App", "vendor": "Acme"}] and plan["manual"] == [{"name": "Odd App"}], plan
+' || { echo "$output"; return 1; }
+}
+
 @test "real uninstall preview refuses /dev/null without a terminal" {
     run_non_tty_confirmation null
 }

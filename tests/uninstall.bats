@@ -7097,6 +7097,62 @@ EOF
     [[ "$output" != *"SELECTED:"* ]]
 }
 
+# Runs main where the batch prints its human preview and writes a stand-in
+# plan, ending with BATCH_RC.
+run_uninstall_main_json() {
+    run env NO_COLOR=1 HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" TERM="xterm-256color" BATCH_RC="${BATCH_RC:-0}" \
+        /bin/bash --noprofile --norc -s -- "$@" << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+log_operation_session_start() { printf 'SESSION\n'; }
+uninstall_abort() { printf 'ABORT:%s\n' "$*"; }
+scan_applications() { printf 'SCANNED\n' >&2; printf 'fixture\n' > "$HOME/apps.list"; printf '%s\n' "$HOME/apps.list"; }
+load_applications() { apps_data=("1700000000|/Applications/Slack.app|Slack|com.tinyspeck.slackmacgap|180MB|Today|184320"); }
+batch_uninstall_applications() {
+    printf 'Files to be removed:\n'
+    [[ -z "${MOLE_UNINSTALL_PLAN_JSON_FILE:-}" ]] || printf '{"plan": "Slack"}\n' > "$MOLE_UNINSTALL_PLAN_JSON_FILE"
+    return "$BATCH_RC"
+}
+main "$@" < /dev/null
+EOF
+}
+
+@test "uninstall --dry-run --json prints only the plan on stdout" {
+    run_uninstall_main_json --dry-run --json /Applications/Slack.app
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    # The scan's own stderr line is the only other output.
+    [[ "$output" == $'SCANNED\n{"plan": "Slack"}' ]] || {
+        printf 'output: %q\n' "$output"
+        return 1
+    }
+
+    BATCH_RC=1 run_uninstall_main_json --dry-run --json /Applications/Slack.app
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *'{"plan": "Slack"}' ]]
+}
+
+@test "uninstall --json refuses a real run and an empty app list before scanning" {
+    run_uninstall_main_json --json /Applications/Slack.app
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"only describes a preview; add --dry-run"* ]] || return 1
+    [[ "$output" != *"SCANNED"* ]] || return 1
+
+    run_uninstall_main_json --dry-run --json
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"needs the apps to preview"* ]] || return 1
+    [[ "$output" != *"SCANNED"* ]]
+}
+
+@test "an inherited plan file never turns an uninstall into a JSON preview" {
+    MOLE_UNINSTALL_PLAN_JSON_FILE="$HOME/inherited-plan.json" run_uninstall_main_json --dry-run /Applications/Slack.app
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"Files to be removed:"* ]] || return 1
+    [[ ! -e "$HOME/inherited-plan.json" ]]
+}
+
 @test "uninstall refuses paths mixed with names before scanning" {
     run_uninstall_main_by_path /Applications/Slack.app Zoom
     [ "$status" -eq 1 ] || return 1

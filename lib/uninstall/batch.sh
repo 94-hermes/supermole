@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 [[ -f "$SCRIPT_DIR/lib/uninstall/steam.sh" ]] && source "$SCRIPT_DIR/lib/uninstall/steam.sh"
 
 source "$SCRIPT_DIR/lib/uninstall/review.sh"
+source "$SCRIPT_DIR/lib/uninstall/plan_json.sh"
 source "$SCRIPT_DIR/lib/uninstall/config_refs.sh"
 
 # Batch uninstall with a single confirmation.
@@ -241,8 +242,10 @@ format_uninstall_preview_path() {
 
 # Each invocation measures fresh paths and publishes rows in the reviewed order.
 # Workers only prepare display text; deletion authority is never shared here.
+# The optional third argument names the row formatter (the JSON plan's).
 _uninstall_print_preview_paths() {
-    local files="$1" prefix="$2" path text rc=0 finished="" pid index=0
+    local files="$1" prefix="$2" formatter="${3:-format_uninstall_preview_path}"
+    local path text rc=0 finished="" pid index=0
     local -a paths=() pids=()
     while IFS= read -r path; do
         [[ -z "$path" || ! -e "$path" ]] || paths+=("$path")
@@ -250,7 +253,7 @@ _uninstall_print_preview_paths() {
     [[ ${#paths[@]} -gt 0 ]] || return 0
     if [[ ${#paths[@]} -le 3 ]]; then
         for path in "${paths[@]}"; do
-            text=$(format_uninstall_preview_path "$path") || return $?
+            text=$("$formatter" "$path") || return $?
             printf '%b%s\n' "$prefix" "$text"
         done
         return 0
@@ -263,7 +266,7 @@ _uninstall_print_preview_paths() {
     trap 'rc=143' TERM
     for path in "${paths[@]}"; do
         [[ $rc -eq 0 ]] || break
-        (format_uninstall_preview_path "$path" > "$result_dir/$index") < /dev/null &
+        ("$formatter" "$path" > "$result_dir/$index") < /dev/null &
         pids+=("$!")
         index=$((index + 1))
         if [[ ${#pids[@]} -ge 4 ]]; then
@@ -2330,6 +2333,12 @@ _batch_preview_and_confirm() {
     local -a _review_auto_files=() _review_personal_files=() _review_app_sizes=()
     local -a _review_personal_paths=() _review_selected_paths=()
     _uninstall_prepare_data_review || return $?
+    # `--dry-run --json`: the same plan as one JSON object, then the end of a
+    # dry run (4); nothing is rendered or asked.
+    if [[ -n "${MOLE_UNINSTALL_PLAN_JSON_FILE:-}" ]]; then
+        _uninstall_render_plan_json || return $?
+        return 4
+    fi
     while true; do
         local size_display=$(bytes_to_human "$((total_estimated_size * 1024))")
 
@@ -3401,6 +3410,11 @@ batch_uninstall_applications() {
     fi
 
     if [[ ${#app_details[@]} -eq 0 ]]; then
+        # Every selected app was blocked or left for manual removal; a JSON
+        # plan still says which and why.
+        if [[ -n "${MOLE_UNINSTALL_PLAN_JSON_FILE:-}" ]]; then
+            _uninstall_render_plan_json || log_error "Could not write the uninstall plan as JSON"
+        fi
         _abort_uninstall_batch
         return 1
     fi
