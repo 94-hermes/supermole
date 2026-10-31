@@ -66,6 +66,7 @@ show_uninstall_help() {
     echo "  mo uninstall slack             Uninstall Slack"
     echo "  mo uninstall slack zoom        Uninstall Slack and Zoom"
     echo "  mo uninstall --dry-run slack   Preview Slack uninstallation"
+    echo "  mo uninstall /Applications/Slack.app  Uninstall exactly the app at that path"
     echo "  mo uninstall --with-data slack Uninstall Slack with its data selected"
     echo "  mo uninstall --list            Show installed apps and the names mo uninstall accepts"
     echo ""

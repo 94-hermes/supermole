@@ -7047,6 +7047,64 @@ EOF
     [[ "$output" != *$'\007'* ]]
 }
 
+# Runs main with a two-app inventory where a name would match both apps,
+# printing the selection the batch receives.
+run_uninstall_main_by_path() {
+    run env NO_COLOR=1 HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" TERM="xterm-256color" /bin/bash --noprofile --norc -s -- "$@" << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+log_operation_session_start() { :; }
+hide_cursor() { :; }
+show_cursor() { :; }
+clear_screen() { :; }
+uninstall_abort() { printf 'ABORT:%s\n' "$*"; }
+scan_applications() { printf 'SCANNED\n' >&2; printf 'fixture\n' > "$HOME/apps.list"; printf '%s\n' "$HOME/apps.list"; }
+load_applications() {
+    apps_data=(
+        "1700000000|/Applications/Slack.app|Slack|com.tinyspeck.slackmacgap|180MB|Today|184320"
+        "1700000000|$HOME/Applications/Slack Helper.app|Slack Helper|com.example.slackhelper|1MB|Today|1024"
+    )
+}
+match_apps_by_name() { printf 'NAME_MATCH_CALLED\n'; selected_apps=("${apps_data[@]}"); }
+batch_uninstall_applications() {
+    local row
+    for row in "${selected_apps[@]}"; do
+        IFS='|' read -r _ row _ <<< "$row"
+        printf 'SELECTED:%s\n' "$row"
+    done
+}
+main "$@" < /dev/null
+EOF
+}
+
+@test "uninstall by absolute path selects exactly that app" {
+    run_uninstall_main_by_path /Applications/Slack.app/ /Applications/Slack.app
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"SELECTED:/Applications/Slack.app"* ]] || return 1
+    [[ "$output" != *"Slack Helper.app"* ]] || return 1
+    [[ "$output" != *"NAME_MATCH_CALLED"* ]] || return 1
+    # The same app named twice is one selection.
+    [[ "$(grep -c 'SELECTED:' <<< "$output")" -eq 1 ]]
+}
+
+@test "uninstall refuses a path that is not an installed app before the batch" {
+    run_uninstall_main_by_path /Applications/Slack.app /Applications/Gone.app
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"Not an installed app: /Applications/Gone.app"* ]] || return 1
+    [[ "$output" != *"SELECTED:"* ]]
+}
+
+@test "uninstall refuses paths mixed with names before scanning" {
+    run_uninstall_main_by_path /Applications/Slack.app Zoom
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"either all by path or all by name"* ]] || return 1
+    [[ "$output" != *"SCANNED"* ]] || return 1
+    [[ "$output" != *"SELECTED:"* ]]
+}
+
 @test "app selector renders control characters in display names inert" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" TERM="xterm-256color" /bin/bash --noprofile --norc << 'INNER'
 set -euo pipefail

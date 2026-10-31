@@ -1700,6 +1700,37 @@ trap 'cleanup 143' TERM
 # Match app names from scan data against user-provided search terms.
 # Performs case-insensitive substring matching on app display names.
 # Returns matched entries from apps_data in selected_apps.
+# Front ends name apps by their bundle path. An absolute argument selects
+# only the inventory row with exactly that path, never a name or substring
+# match; one path that is not an installed app refuses the whole request.
+match_apps_by_path() {
+    selected_apps=()
+    local requested app_data app_path chosen already found
+    for requested in "$@"; do
+        while [[ "$requested" == */ && "$requested" != "/" ]]; do
+            requested="${requested%/}"
+        done
+        found=false
+        for app_data in "${apps_data[@]+"${apps_data[@]}"}"; do
+            IFS='|' read -r _ app_path _ <<< "$app_data"
+            [[ "$app_path" == "$requested" ]] || continue
+            found=true
+            already=false
+            for chosen in "${selected_apps[@]+"${selected_apps[@]}"}"; do
+                [[ "$chosen" == "$app_data" ]] && already=true && break
+            done
+            [[ "$already" == "true" ]] || selected_apps+=("$app_data")
+            break
+        done
+        if [[ "$found" == "false" ]]; then
+            printf 'Not an installed app: %s\n' "$(mole_terminal_safe_text "$requested")" >&2
+            selected_apps=()
+            return 1
+        fi
+    done
+    return 0
+}
+
 match_apps_by_name() {
     local -a search_terms=("$@")
     selected_apps=()
@@ -2055,6 +2086,17 @@ main() {
         esac
     done
 
+    # Apps are named either by bundle path (front ends) or by name, never
+    # both: a name may match several apps, a path exactly one.
+    local path_arg_count=0 app_name_arg
+    for app_name_arg in "${app_name_args[@]+"${app_name_args[@]}"}"; do
+        [[ "$app_name_arg" == /* ]] && path_arg_count=$((path_arg_count + 1))
+    done
+    if [[ $path_arg_count -gt 0 && $path_arg_count -ne ${#app_name_args[@]} ]]; then
+        echo "Name the apps to uninstall either all by path or all by name." >&2
+        exit 1
+    fi
+
     # --list short-circuits before any destructive code. Read-only path:
     # scan, resolve uninstall names, print table or JSON, exit 0.
     if [[ $list_mode -eq 1 ]]; then
@@ -2089,8 +2131,17 @@ main() {
             return 1
         fi
 
-        match_apps_by_name "${app_name_args[@]}"
+        local match_rc=0
+        if [[ $path_arg_count -gt 0 ]]; then
+            match_apps_by_path "${app_name_args[@]}" || match_rc=$?
+        else
+            match_apps_by_name "${app_name_args[@]}"
+        fi
         rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
+        if [[ $match_rc -ne 0 ]]; then
+            show_cursor
+            return 1
+        fi
 
         if [[ ${#selected_apps[@]} -eq 0 ]]; then
             show_cursor
