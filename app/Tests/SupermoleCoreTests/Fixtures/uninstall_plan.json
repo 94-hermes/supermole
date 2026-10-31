@@ -1,4 +1,4 @@
-{"dry_run": true, "with_data": true, "total_size_kb": 196640, "apps": [
+{"dry_run": true, "plan_digest": "abababababababababababababababababababababababababababababababab", "delete_mode": "trash", "with_data": true, "total_size_kb": 196640, "apps": [
   {"name": "Slack", "path": "/Applications/Slack.app", "bundle_id": "com.example.slack", "homebrew_cask": null, "running": true, "needs_admin": false, "steam_managed": false, "size_kb": 184320,
    "notes": ["Shared leftovers kept (other copies unchecked)"],
    "leftovers": [{"path": "/Users/test/Library/Caches/com.example.slack", "size_kb": 2048}],

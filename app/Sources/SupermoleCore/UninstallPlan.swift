@@ -4,6 +4,14 @@ import Foundation
 /// would remove (lib/uninstall/plan_json.sh). Sizes are in KiB, null when
 /// unknown; `review_only` rows are listed for the person and never removed.
 public struct UninstallPlan: Decodable, Sendable, Equatable {
+    /// `mo uninstall --yes` exits with this when the apps changed since the
+    /// preview it confirms (lib/uninstall/plan_json.sh): nothing was removed.
+    public static let planChangedStatus: Int32 = 65
+
+    /// What the uninstall must find again to run: `--yes` refuses any other plan.
+    public let planDigest: String
+    /// trash, or permanent.
+    public let deleteMode: String
     public let withData: Bool
     public let totalSizeKb: Int64?
     public let apps: [App]
@@ -17,10 +25,10 @@ public struct UninstallPlan: Decodable, Sendable, Equatable {
         ["uninstall", "--dry-run", "--json"] + dataFlag(withData) + paths
     }
 
-    /// The real run, confirmed by the click on the preview: the apps go to
-    /// the Trash with what the preview listed.
-    public static func uninstallArguments(paths: [String], withData: Bool) -> [String] {
-        ["uninstall", "--yes"] + dataFlag(withData) + paths
+    /// The real run, confirmed by the click on this preview: the apps go to
+    /// the Trash with what it listed, and nothing else, or `mo` refuses.
+    public func uninstallArguments() -> [String] {
+        ["uninstall", "--yes", "--plan=\(planDigest)"] + Self.dataFlag(withData) + appsWithoutAdmin.map(\.path)
     }
 
     private static func dataFlag(_ withData: Bool) -> [String] {

@@ -39,6 +39,8 @@ final class UninstallModel {
     /// Planned apps still installed after the run.
     private(set) var notRemoved: [String] = []
     private(set) var runCompleted = true
+    /// Why the plan on screen was made again, when `mo` refused the previous one.
+    private(set) var notice: String?
     private var task: Task<Void, Never>?
     private var hasLoaded = false
 
@@ -97,6 +99,7 @@ final class UninstallModel {
         guard !paths.isEmpty else { return }
         task?.cancel()
         phase = .planning
+        notice = nil
         let withData = withData
         task = Task {
             do {
@@ -135,13 +138,20 @@ final class UninstallModel {
         log = RunLog()
         result = nil
         notRemoved = []
-        let arguments = UninstallPlan.uninstallArguments(paths: planned.map(\.path), withData: withData)
+        let arguments = plan.uninstallArguments()
         task = Task {
             var exitedCleanly = true
             do {
                 for try await line in runner.lines(arguments, includeErrors: true) {
                     log.append(line)
                 }
+            } catch MoleError.failed(let status, _) where status == UninstallPlan.planChangedStatus {
+                // Something changed since the preview (an app was opened,
+                // updated or wrote new files): nothing was removed. Show the
+                // plan as it is now, to be confirmed again.
+                review(using: runner)
+                notice = String(localized: "Something changed since the preview, so nothing was removed. Here is the plan as it is now.")
+                return
             } catch MoleError.failed {
                 // An app `mo` could not remove ends the run with a nonzero
                 // status; the disk and the history say what went.
@@ -242,6 +252,11 @@ struct UninstallSection: View {
 
     @ViewBuilder
     private func planContent(_ plan: UninstallPlan) -> some View {
+        if let notice = model.notice {
+            Label(notice, systemImage: "arrow.triangle.2.circlepath")
+                .foregroundStyle(Theme.amber)
+                .entrance(2)
+        }
         PlanSummaryCard(
             plan: plan,
             withData: Binding(get: { model.withData }, set: { model.setWithData($0, using: runner) }),

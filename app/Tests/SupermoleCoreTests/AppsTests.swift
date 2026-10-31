@@ -50,11 +50,17 @@ final class AppsTests: XCTestCase {
         XCTAssertTrue(plan.withData)
     }
 
-    func testThePreviewAndTheRunNameTheSameAppsByPath() {
+    func testThePreviewAndTheRunNameTheSameAppsByPath() throws {
         let paths = ["/Applications/Slack.app", "/Users/test/Applications/Cold Start.app"]
+        let plan = try fixture(UninstallPlan.self, "uninstall_plan")
 
         XCTAssertEqual(UninstallPlan.arguments(paths: paths, withData: false), ["uninstall", "--dry-run", "--json"] + paths)
-        XCTAssertEqual(UninstallPlan.uninstallArguments(paths: paths, withData: true), ["uninstall", "--yes", "--with-data"] + paths)
+        // The run confirms this very plan, and leaves out the app needing an administrator.
+        XCTAssertEqual(
+            plan.uninstallArguments(),
+            ["uninstall", "--yes", "--plan=" + String(repeating: "ab", count: 32), "--with-data", "/Applications/Slack.app"]
+        )
+        XCTAssertEqual(plan.deleteMode, "trash")
     }
 
     func testTheSlimPreviewListsAppsAndSlimsOnlyTheNamedOnes() throws {
