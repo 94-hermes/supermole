@@ -1845,24 +1845,20 @@ match_apps_by_name() {
     done
 }
 
-# Escape a value for embedding in a single-line JSON string. Only handles
-# the chars that would break a one-line value: backslash, quote, and C0
-# whitespace. Bundle IDs / display names never contain control bytes worth
-# preserving in this output.
-uninstall_list_json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\t'/ }"
-    s="${s//$'\r'/ }"
-    s="${s//$'\n'/ }"
-    printf '%s' "$s"
+# A positive whole number as JSON, or null when the scan has no value yet.
+uninstall_list_json_count() {
+    if [[ "${1:-}" =~ ^[0-9]+$ && "$1" -gt 0 ]]; then
+        printf '%s' "$1"
+    else
+        printf 'null'
+    fi
 }
 
 # Read-only listing: surface each installed app's display name, bundle id,
-# the exact name `mo uninstall` accepts, and human-readable size. Reuses the
-# existing scanner so the output stays in lockstep with what the destructive
-# path sees.
+# the exact name `mo uninstall` accepts, and its size (human-readable, and in
+# KB with the last-use epoch for front ends; null until the deferred metadata
+# refresh has measured a cold row). Reuses the existing scanner so the output
+# stays in lockstep with what the destructive path sees.
 uninstall_list_apps() {
     local apps_file=""
     if ! apps_file=$(scan_applications); then
@@ -1917,9 +1913,9 @@ uninstall_list_apps() {
     if [[ "$format" == "json" ]]; then
         printf '['
         local first=1
-        local app_data
+        local app_data epoch app_path app_name bundle_id size size_kb
         for app_data in "${apps_data[@]+"${apps_data[@]}"}"; do
-            IFS='|' read -r _ app_path app_name bundle_id size _ _ <<< "$app_data"
+            IFS='|' read -r epoch app_path app_name bundle_id size _ size_kb <<< "$app_data"
             local cask=""
             if is_homebrew_available; then
                 cask=$(get_brew_cask_name "$app_path" 2> /dev/null || true)
@@ -1935,13 +1931,15 @@ uninstall_list_apps() {
             else
                 printf ',\n'
             fi
-            printf '  {"name": "%s", "bundle_id": "%s", "source": "%s", "uninstall_name": "%s", "path": "%s", "size": "%s"}' \
-                "$(uninstall_list_json_escape "$app_name")" \
-                "$(uninstall_list_json_escape "$bundle_id")" \
-                "$source_label" \
-                "$(uninstall_list_json_escape "$uninstall_name")" \
-                "$(uninstall_list_json_escape "$app_path")" \
-                "$(uninstall_list_json_escape "$size_display")"
+            printf '  {"name": %s, "bundle_id": %s, "source": %s, "uninstall_name": %s, "path": %s, "size": %s, "size_kb": %s, "last_used_epoch": %s}' \
+                "$(mole_json_string "$app_name")" \
+                "$(mole_json_string "$bundle_id")" \
+                "$(mole_json_string "$source_label")" \
+                "$(mole_json_string "$uninstall_name")" \
+                "$(mole_json_string "$app_path")" \
+                "$(mole_json_string "$size_display")" \
+                "$(uninstall_list_json_count "$size_kb")" \
+                "$(uninstall_list_json_count "$epoch")"
         done
         if [[ $first -eq 0 ]]; then
             printf '\n'

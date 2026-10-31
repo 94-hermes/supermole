@@ -5680,6 +5680,49 @@ INNER
     fi
 }
 
+@test "uninstall --list JSON gives the raw size and last use, null when unknown" {
+    local apps_cache
+    apps_cache="$(mktemp "${BATS_TEST_TMPDIR:-$BATS_RUN_TMPDIR:-$HOME}/tmp-list-raw.XXXXXX")"
+    # A cold row has no size yet ("--", 0 KB) and no last-use epoch; the name
+    # carries a control byte that must come out escaped, not raw.
+    printf '%s\n' \
+        '1700000000|/Applications/Slack.app|Slack|com.tinyspeck.slackmacgap|180MB|Today|184320' \
+        "0|/Applications/Cold.app|Co$(printf '\001')ld|com.example.cold|--|Unknown|0" > "$apps_cache"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 \
+        APPS_CACHE_FILE="$apps_cache" /bin/bash --noprofile --norc << 'INNER'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+
+log_operation_session_start() { :; }
+hide_cursor() { :; }
+show_cursor() { :; }
+scan_applications() { printf '%s\n' "$APPS_CACHE_FILE"; }
+load_applications() {
+    apps_data=()
+    while IFS='|' read -r epoch app_path app_name bundle_id size last_used size_kb; do
+        apps_data+=("$epoch|$app_path|$app_name|$bundle_id|$size|$last_used|${size_kb:-0}")
+    done < "$1"
+}
+is_homebrew_available() { return 1; }
+get_brew_cask_name() { return 1; }
+uninstall_normalize_size_display() { printf '%s\n' "${1:-N/A}"; }
+
+main --list
+INNER
+
+    rm -f "$apps_cache"
+    [ "$status" -eq 0 ] || return 1
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+rows = {row["path"]: row for row in json.load(sys.stdin)}
+slack, cold = rows["/Applications/Slack.app"], rows["/Applications/Cold.app"]
+assert slack["size_kb"] == 184320 and slack["last_used_epoch"] == 1700000000, slack
+assert cold["size_kb"] is None and cold["last_used_epoch"] is None, cold
+assert cold["name"] == "Co\u0001ld", cold
+'
+}
+
 @test "uninstall --list with empty scan returns empty JSON array" {
     local apps_cache
     apps_cache="$(mktemp "${BATS_TEST_TMPDIR:-$BATS_RUN_TMPDIR:-$HOME}/tmp-list-empty.XXXXXX")"

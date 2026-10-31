@@ -321,7 +321,7 @@ The health score combines CPU, memory, disk capacity, SMART status, I/O, thermal
 - `mo status | jq '.health_score'` switches to JSON automatically when output is piped
 - `mo status --watch --interval 2s` streams newline-delimited JSON from a warm collector
 - `mo history --json` returns cleanup activity as JSON. Sessions include `run_id` (an opaque string, empty when no identity was logged) and `attribution`: `run` for identified runs, `command` for legacy command-based grouping, or `ambiguous` when legacy markers cannot distinguish interruption from overlapping runs. Recorded actions remain available; ambiguous counts cannot be assigned reliably to individual runs. An empty `ended_at` means no end marker was recorded
-- `mo uninstall --list` returns installed apps as JSON with `name`, `bundle_id`, `source`, `uninstall_name`, `path` and `size`
+- `mo uninstall --list` returns installed apps as JSON with `name`, `bundle_id`, `source`, `uninstall_name`, `path` and `size`, plus `size_kb` and `last_used_epoch`, which are `null` until a newly seen app has been measured (the next listing has them)
 
 ```text
 $ mo analyze --json ~/Documents
