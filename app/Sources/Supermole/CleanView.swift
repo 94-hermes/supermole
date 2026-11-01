@@ -233,6 +233,7 @@ private struct StartCard: View {
 }
 
 private struct SummaryCard: View {
+    @Environment(AppModel.self) private var app
     let preview: CleanPreview
     let emptiesTrash: Bool
     let clean: () -> Void
@@ -287,6 +288,11 @@ private struct SummaryCard: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Label("System caches need an administrator password; that part comes in a later version.", systemImage: "lock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if app.fullDiskAccess == .denied {
+                    Label("Without Full Disk Access, part of the Mac is not seen. Supermole › Settings shows how to grant it.", systemImage: "lock.shield")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

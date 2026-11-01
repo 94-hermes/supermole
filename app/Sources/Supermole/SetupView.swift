@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// First launch: looks for `mo`, and installs it when it is missing.
+/// First launch: looks for `mo`, installs it when it is missing, then asks
+/// for Full Disk Access when macOS hides part of the Mac.
 struct SetupView: View {
     @Environment(AppModel.self) private var model
 
@@ -27,6 +28,8 @@ struct SetupView: View {
             case .installing:
                 ProgressView("Installing…")
                 installLog
+            case .needsFullDiskAccess:
+                FullDiskAccessStep()
             case .failed(let message):
                 ErrorBanner(message: message).frame(maxWidth: 560)
                 installLog

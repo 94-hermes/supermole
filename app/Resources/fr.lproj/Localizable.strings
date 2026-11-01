@@ -16,6 +16,13 @@
 "Install" = "Installer";
 "Installing…" = "Installation…";
 "The installer finished, but mo is still missing." = "L'installation s'est terminée, mais le moteur est toujours introuvable.";
+"Full Disk Access" = "Accès complet au disque";
+"To see your whole Mac, Supermole needs Full Disk Access. Without it, Mail, Messages, Safari and some caches stay hidden. Nothing leaves your Mac." = "Pour voir tout ton Mac, Supermole a besoin de l'accès complet au disque. Sans lui, Mail, Messages, Safari et certains caches lui restent invisibles. Rien ne quitte ton Mac.";
+"Open System Settings with the button below." = "Ouvre Réglages Système avec le bouton ci-dessous.";
+"Turn on Supermole in the list. Not there? Click +, then choose Supermole in Applications." = "Active Supermole dans la liste. Il n'y est pas ? Clique sur +, puis choisis Supermole dans Applications.";
+"If macOS offers to quit and reopen Supermole, accept." = "Si macOS propose de quitter et rouvrir Supermole, accepte.";
+"Continue without" = "Continuer sans";
+"Open System Settings" = "Ouvrir Réglages Système";
 
 /* Home */
 "Reading your Mac…" = "Lecture de ton Mac…";
@@ -83,6 +90,10 @@
 "About" = "À propos";
 "Supermole is an unofficial fork of Mole, modified by Airkul. It is not affiliated with or endorsed by the Mole project." = "Supermole est un fork non officiel de Mole, modifié par Airkul. Il n'est ni affilié au projet Mole ni approuvé par lui.";
 "Mole on GitHub" = "Mole sur GitHub";
+"Permissions" = "Autorisations";
+"Granted" = "Accordé";
+"Not granted" = "Non accordé";
+"Could not be checked" = "Impossible à vérifier";
 
 /* Clean up */
 "Caches, leftovers and files your Mac no longer needs." = "Caches, restes et fichiers dont ton Mac n'a plus besoin.";
@@ -97,6 +108,7 @@
 "The Trash is emptied too." = "La corbeille est vidée aussi.";
 "Part of the Mac could not be checked in time; Analyze again before cleaning." = "Une partie du Mac n'a pas pu être vérifiée à temps : analyse à nouveau avant de nettoyer.";
 "System caches need an administrator password; that part comes in a later version." = "Les caches système demandent un mot de passe administrateur : cette partie arrive dans une prochaine version.";
+"Without Full Disk Access, part of the Mac is not seen. Supermole › Settings shows how to grant it." = "Sans l'accès complet au disque, une partie du Mac n'est pas vue. Supermole › Réglages explique comment l'accorder.";
 "By category" = "Par catégorie";
 "%lld items" = "%lld éléments";
 "and %lld more" = "et %lld autres";

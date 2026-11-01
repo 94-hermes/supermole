@@ -19,6 +19,7 @@ struct SettingsView: View {
                     LabeledContent("Version") { Text(verbatim: version) }
                 }
             }
+            FullDiskAccessSettingsSection()
             Section("About") {
                 Text("Supermole is an unofficial fork of Mole, modified by Airkul. It is not affiliated with or endorsed by the Mole project.")
                     .foregroundStyle(.secondary)
