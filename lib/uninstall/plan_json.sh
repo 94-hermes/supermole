@@ -14,33 +14,37 @@ readonly MOLE_UNINSTALL_PLAN_CHANGED_EXIT=65
 # The plan as the person approved it, as a SHA-256: the delete mode, the
 # personal-data choice and, per app, its path, bundle id and identity
 # (device, inode, mtime), whether it is running (it would be quit), needs an
-# administrator or is a Homebrew cask, then every path it removes, sorted.
-# Sizes stay out, since caches grow between the preview and the click.
+# administrator or is a Homebrew cask (and which one, whose uninstall steps
+# brew runs), then every path it removes, sorted. Sizes stay out, since caches
+# grow between the preview and the click. Every line must be written: a
+# failing tool fails the digest rather than leaving a path out of it.
 # Reads the batch preview's scope, like _uninstall_render_plan_json.
 # shellcheck disable=SC2154  # Arrays belong to the calling batch preview scope.
 _uninstall_plan_digest() {
-    local detail app_name app_path bundle_id needs_sudo_flag is_brew_cask app_identity
+    local detail app_name app_path bundle_id needs_sudo_flag is_brew_cask cask_name app_identity
     local running removed personal_path digest review_index=0
     digest=$(
-        printf 'mole-uninstall-plan 1\n'
-        printf 'delete_mode=%s\n' "${MOLE_DELETE_MODE:-trash}"
-        printf 'with_data=%s\n' "${MOLE_UNINSTALL_WITH_DATA:-0}"
+        printf 'mole-uninstall-plan 1\n' || exit 1
+        printf 'delete_mode=%s\n' "${MOLE_DELETE_MODE:-trash}" || exit 1
+        printf 'with_data=%s\n' "${MOLE_UNINSTALL_WITH_DATA:-0}" || exit 1
         for detail in "${app_details[@]+"${app_details[@]}"}"; do
-            IFS='|' read -r app_name app_path bundle_id _ _ _ _ needs_sudo_flag is_brew_cask _ _ _ _ _ app_identity _ <<< "$detail"
+            IFS='|' read -r app_name app_path bundle_id _ _ _ _ needs_sudo_flag is_brew_cask cask_name _ _ _ _ app_identity _ <<< "$detail"
             running=false
             if _uninstall_plan_json_listed "$app_name" "${running_apps[@]+"${running_apps[@]}"}"; then
                 running=true
             fi
-            printf 'app=%s|%s|%s|running=%s|sudo=%s|brew=%s\n' \
-                "$app_path" "$bundle_id" "$app_identity" "$running" "$needs_sudo_flag" "$is_brew_cask"
+            printf 'app=%s|%s|%s|running=%s|sudo=%s|brew=%s|cask=%s\n' \
+                "$app_path" "$bundle_id" "$app_identity" "$running" "$needs_sudo_flag" "$is_brew_cask" "$cask_name" || exit 1
             removed="${_review_auto_files[review_index]-}"
             while IFS= read -r personal_path; do
                 [[ -n "$personal_path" ]] || continue
                 if mole_identity_in_list "$personal_path" "${_review_selected_paths[@]+"${_review_selected_paths[@]}"}"; then
-                    removed=$(append_line "$removed" "$personal_path")
+                    removed=$(append_line "$removed" "$personal_path") || exit 1
                 fi
             done <<< "${_review_personal_files[review_index]-}"
-            [[ -z "$removed" ]] || printf '%s\n' "$removed" | LC_ALL=C sort | sed 's/^/remove=/'
+            if [[ -n "$removed" ]]; then
+                printf '%s\n' "$removed" | LC_ALL=C sort | sed 's/^/remove=/' || exit 1
+            fi
             review_index=$((review_index + 1))
         done
     ) || return 1

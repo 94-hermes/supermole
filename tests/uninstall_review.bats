@@ -564,8 +564,9 @@ assert plan["blocked"] == [{"name": "Vendor App", "vendor": "Acme"}] and plan["m
 
 # --yes with no terminal and no test flag, as Supermole.app runs it: a JSON
 # preview gives the plan_digest, CHANGE alters the state before the --yes run
-# (none, leftover, running, data, mode), and KIND=brew makes the app a
-# Homebrew cask, which needs an administrator.
+# (none, leftover, running, data, mode, identity, sudo, brew, cask), and
+# KIND=brew makes the app a Homebrew cask, which needs an administrator.
+# KIND=brokensed makes sed fail from the start, so no digest can be trusted.
 run_yes_confirmation() {
     run env -u MOLE_TEST_NO_AUTH -u MOLE_TEST_MODE HOME="$HOME/yes-$1-$2" PROJECT_ROOT="$PROJECT_ROOT" \
         KIND="$1" CHANGE="$2" /bin/bash --noprofile --norc <<'SH'
@@ -578,15 +579,16 @@ cache="$HOME/Library/Caches/com.example.app"
 extra="$HOME/Library/Logs/Example"
 mkdir -p "$app" "$cache" "$extra"
 running_apps=() sudo_apps=() brew_cask_apps=() leftover_notes=()
-brew=false
+brew=false sudo=false cask=example identity=1:2:3
 if [[ "$KIND" == brew ]]; then
     brew=true
     brew_cask_apps=(Example)
 fi
 plan_row() {
-    printf 'Example|%s|com.example.app|12|%s||false|false|%s|example||||none|1:2:3||||' \
-        "$app" "$(printf '%s\n' "$@" | base64 | tr -d '\n')" "$brew"
+    printf 'Example|%s|com.example.app|12|%s||false|%s|%s|%s||||none|%s||||' \
+        "$app" "$(printf '%s\n' "$@" | base64 | tr -d '\n')" "$sudo" "$brew" "$cask" "$identity"
 }
+[[ "$KIND" != brokensed ]] || sed() { return 1; }
 app_details=("$(plan_row "$cache")")
 total_estimated_size=12
 get_path_size_kb() { printf '0\n'; }
@@ -595,6 +597,15 @@ ensure_sudo_session() { printf 'SUDO_ASKED\n'; return 1; }
 
 rc=0
 MOLE_UNINSTALL_PLAN_JSON_FILE="$HOME/plan.json" MOLE_DRY_RUN=1 _batch_preview_and_confirm < /dev/null > /dev/null || rc=$?
+if [[ "$KIND" == brokensed ]]; then
+    # The plan cannot be described, so there is nothing to confirm.
+    has_digest=no
+    if [[ -f "$HOME/plan.json" ]] && grep -q plan_digest "$HOME/plan.json"; then
+        has_digest=yes
+    fi
+    printf 'PREVIEW_RC=%s HAS_DIGEST=%s\n' "$rc" "$has_digest"
+    exit 0
+fi
 [[ $rc -eq 4 ]] || { printf 'PREVIEW_RC=%s\n' "$rc"; exit 1; }
 digest=$(sed -n 's/.*"plan_digest": "\([0-9a-f]*\)".*/\1/p' "$HOME/plan.json")
 [[ ${#digest} -eq 64 ]] || { printf 'NO_DIGEST\n'; exit 1; }
@@ -605,6 +616,10 @@ case "$CHANGE" in
     running) running_apps=(Example) ;;
     data) export MOLE_UNINSTALL_WITH_DATA=1 ;;
     mode) export MOLE_DELETE_MODE=permanent ;;
+    identity) identity=1:2:4 && app_details=("$(plan_row "$cache")") ;;
+    sudo) sudo=true && app_details=("$(plan_row "$cache")") ;;
+    brew) brew=true && app_details=("$(plan_row "$cache")") ;;
+    cask) cask=other && app_details=("$(plan_row "$cache")") ;;
 esac
 rc=0
 MOLE_UNINSTALL_CONFIRMED=1 MOLE_UNINSTALL_PLAN_DIGEST="$digest" _batch_preview_and_confirm < /dev/null || rc=$?
@@ -622,12 +637,18 @@ SH
 
 @test "--yes refuses a plan that changed since its preview" {
     local change
-    for change in leftover running data mode; do
+    for change in leftover running data mode identity sudo brew cask; do
         run_yes_confirmation plain "$change"
         [ "$status" -eq 0 ] || { echo "$change: $output"; return 1; }
         [[ "$output" == *"RC=5"* && "$output" == *"changed since the preview"* ]] || { echo "$change: $output"; return 1; }
         [[ "$output" != *"confirmed with --yes"* ]] || { echo "$change: $output"; return 1; }
     done
+}
+
+@test "a plan whose removal list cannot be written has no digest to confirm" {
+    run_yes_confirmation brokensed none
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"HAS_DIGEST=no"* && "$output" != *"PREVIEW_RC=4 "* ]] || { echo "$output"; return 1; }
 }
 
 @test "--yes refuses an app that needs an administrator without a terminal, before asking" {
