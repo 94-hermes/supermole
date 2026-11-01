@@ -39,7 +39,12 @@ This fork runs on macOS 12 or newer, on Intel or Apple Silicon. The AI explanati
 
 **Install**
 
-Download [Installer-Supermole.dmg](https://github.com/94-hermes/supermole/releases/latest/download/Installer-Supermole.dmg), open it and double-click **Installer Supermole**: Terminal opens and runs the installer below. The app is not signed by Apple yet, so macOS refuses to open it the first time. Open **System Settings › Privacy & Security**, click **Open Anyway** next to "Installer Supermole" and confirm; it opens normally after that.
+Download [Installer-Supermole.dmg](https://github.com/94-hermes/supermole/releases/latest/download/Installer-Supermole.dmg) and open it. It offers two versions side by side:
+
+- **Application** (macOS 26 or newer): drag **Supermole** onto **Applications**. The app is one window for people who never open Terminal, and installs `mo` for your account the first time it opens.
+- **Terminal** (macOS 12 or newer): double-click **Supermole Terminal**. Terminal opens and runs the installer below, for the `mo` command alone.
+
+Neither is signed by Apple yet, so macOS refuses to open it the first time. Open **System Settings › Privacy & Security**, click **Open Anyway** next to its name and confirm; it opens normally after that.
 
 Or paste this in Terminal:
 

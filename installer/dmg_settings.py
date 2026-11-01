@@ -1,6 +1,7 @@
 # dmgbuild layout of Installer-Supermole.dmg, read by
-# scripts/build_installer_dmg.sh. The build passes three paths through -D:
-# app (the built Supermole.app), background (a HiDPI tiff) and icon (the
+# scripts/build_installer_dmg.sh. The build passes four paths through -D:
+# app (the built Supermole.app), terminal_app (Supermole Terminal.app, the
+# Terminal version's installer), background (a HiDPI tiff) and icon (the
 # volume icon), and puts this folder on PYTHONPATH for installer_layout.
 import os.path
 
@@ -8,15 +9,17 @@ from installer_layout import (
     APP_ICON_CENTER,
     APPLICATIONS_ICON_CENTER,
     ICON_SIZE,
+    TERMINAL_ICON_CENTER,
     WINDOW_ORIGIN,
     WINDOW_SIZE,
 )
 
 application = defines["app"]  # noqa: F821 - provided by dmgbuild
+terminal_installer = defines["terminal_app"]  # noqa: F821
 APPLICATIONS_LINK = "Applications"
 
 format = "UDZO"
-files = [application]
+files = [application, terminal_installer]
 symlinks = {APPLICATIONS_LINK: "/Applications"}
 icon = defines["icon"]  # noqa: F821
 background = defines["background"]  # noqa: F821
@@ -29,6 +32,7 @@ label_pos = "bottom"
 icon_locations = {
     os.path.basename(application): APP_ICON_CENTER,
     APPLICATIONS_LINK: APPLICATIONS_ICON_CENTER,
+    os.path.basename(terminal_installer): TERMINAL_ICON_CENTER,
 }
 
 show_status_bar = False
