@@ -3,7 +3,8 @@
 >
 > What this fork changes:
 > - **AI explanations in `mo analyze`**: Claude Code (or Codex) tells you in plain words what a file or folder is and whether it is safe to delete.
-> - **Installs and updates from this repository**, with a double-click installer: see [Quick Start](#quick-start).
+> - **Supermole.app** (macOS 26 or newer): one window, in English and French, for people who never open Terminal: Mac health, Clean up, Apps (uninstall with leftovers, slim) and Analyze with the AI explanations. It drives `mo` and shows everything before anything is removed. It is this fork's app, not upstream's Mole for Mac.
+> - **Installs and updates from this repository**, with a double-click installer that offers the app or the Terminal version: see [Quick Start](#quick-start).
 
 <p align="right"><b>macOS</b> · <a href="https://github.com/tw93/Mole/tree/windows">Windows</a></p>
 
@@ -59,6 +60,17 @@ The installer downloads this fork's latest release, checks its checksums (and it
 ```bash
 mo update
 ```
+
+`mo update` installs this fork's latest release, with the same checksum and attestation checks as the installer; a clone install prints its `git pull` commands instead. To update the app, download the dmg again and drag the new **Supermole** onto **Applications** to replace it; the `mo` it installed updates with `mo update`.
+
+**Remove**
+
+```bash
+mo remove --dry-run          # See what would go
+mo remove                    # Remove mo from this Mac
+```
+
+`mo remove` deletes the `mo` and `mole` commands and `~/.cache/mole` (saved AI explanations included), moves your settings in `~/.config/mole` to the Trash, and keeps the operation log in `~/Library/Logs/mole`. It asks for confirmation in Terminal and may ask for an administrator password when `mo` is in `/usr/local/bin`. The app is not part of it: drag **Supermole** from **Applications** to the Trash.
 
 **With an AI agent**
 
