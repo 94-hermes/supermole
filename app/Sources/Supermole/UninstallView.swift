@@ -20,9 +20,15 @@ final class UninstallModel {
     /// An app `mo` sees for the first time has no size until its background
     /// measurement ends; one more listing after this pause fills it in.
     static let sizeRefreshDelay: Duration = .seconds(8)
+    /// A kept listing younger than this is shown without listing again.
+    static let listFreshness: TimeInterval = 5 * 60
 
     private(set) var phase: Phase = .loading
     private(set) var apps: [InstalledApp] = []
+    /// When the listing on screen was made, while it is one kept from
+    /// earlier; nil once it was listed just now.
+    private(set) var listedSince: Date?
+    private(set) var isRefreshing = false
     /// Ticked apps, by bundle path.
     var selection: Set<String> = []
     var query = ""
@@ -41,6 +47,7 @@ final class UninstallModel {
     private(set) var runCompleted = true
     /// Why the plan on screen was made again, when `mo` refused the previous one.
     private(set) var notice: String?
+    private let cache = ResultCache()
     private var task: Task<Void, Never>?
     private var hasLoaded = false
 
@@ -55,11 +62,21 @@ final class UninstallModel {
         load(using: runner)
     }
 
+    /// Shows the listing kept from earlier at once, then lists again unless
+    /// the kept one is recent.
     func load(using runner: MoleRunner) {
         task?.cancel()
-        phase = .loading
+        if case .failed = phase { phase = .loading }
         task = Task {
             do {
+                if let kept = await cache.kept([InstalledApp].self, for: InstalledApp.arguments) {
+                    try Task.checkCancellation()
+                    show(kept.value)
+                    listedSince = kept.savedAt
+                    if kept.isRecent(within: Self.listFreshness) { return }
+                }
+                isRefreshing = true
+                defer { isRefreshing = false }
                 try await list(using: runner)
                 if InstalledApps.lacksSizes(apps) {
                     try await Task.sleep(for: Self.sizeRefreshDelay)
@@ -77,12 +94,24 @@ final class UninstallModel {
 
     /// Lists the apps again; a ticked app that is gone is unticked.
     private func list(using runner: MoleRunner) async throws {
-        let apps = try await runner.decode([InstalledApp].self, InstalledApp.arguments)
+        let apps = try await runner.decode([InstalledApp].self, InstalledApp.arguments, keepingIn: cache)
         try Task.checkCancellation()
+        show(apps)
+        listedSince = nil
+    }
+
+    /// Only the first listing enters with an animation; a newer one replaces
+    /// the rows in place.
+    private func show(_ apps: [InstalledApp]) {
+        guard phase == .loading else {
+            self.apps = apps
+            selection.formIntersection(apps.map(\.path))
+            return
+        }
         withAnimation(Motion.entrance) {
             self.apps = apps
             selection.formIntersection(apps.map(\.path))
-            if phase == .loading { phase = .list }
+            phase = .list
         }
     }
 
@@ -333,6 +362,10 @@ private struct AppListCard: View {
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
+                    if let listedSince = model.listedSince {
+                        Spacer()
+                        UpdatedLabel(savedAt: listedSince, isRefreshing: model.isRefreshing)
+                    }
                 }
                 let shown = model.shownApps
                 if shown.isEmpty {

@@ -108,11 +108,17 @@ public struct MoleRunner: Sendable {
 
     /// Runs `mo` and decodes its JSON output.
     public func decode<Value: Decodable>(_ type: Value.Type, _ arguments: [String]) async throws -> Value {
+        try MoleJSON.decode(type, from: await succeededOutput(arguments))
+    }
+
+    /// The standard output of a run that succeeded; a failed run throws what
+    /// `mo` printed on standard error.
+    func succeededOutput(_ arguments: [String]) async throws -> Data {
         let output = try await run(arguments)
         guard output.succeeded else {
             throw MoleError.failed(status: output.status, message: output.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return try MoleJSON.decode(type, from: output.stdout)
+        return output.stdout
     }
 
     /// Like `decode`, for commands that still print their JSON when they stop

@@ -128,3 +128,27 @@ struct LoadingCard: View {
         }
     }
 }
+
+/// "Updated 12 minutes ago", while a space shows a result kept from earlier,
+/// with a spinner while a fresh one is read.
+struct UpdatedLabel: View {
+    let savedAt: Date
+    let isRefreshing: Bool
+
+    private static let age: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isRefreshing {
+                ProgressView().controlSize(.mini)
+            }
+            Text("Updated \(Self.age.localizedString(for: savedAt, relativeTo: .now))")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}

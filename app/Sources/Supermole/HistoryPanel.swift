@@ -7,10 +7,16 @@ import SwiftUI
 final class HistoryModel {
     private(set) var report: HistoryReport?
     private(set) var errorMessage: String?
+    private let cache = ResultCache()
 
+    /// The report kept from earlier at once on the first opening, then a
+    /// fresh one every time: a run since may have added a session.
     func load(using runner: MoleRunner) async {
+        if report == nil, let kept = await cache.kept(HistoryReport.self, for: HistoryReport.arguments()) {
+            report = kept.value
+        }
         do {
-            report = try await runner.decode(HistoryReport.self, HistoryReport.arguments())
+            report = try await runner.decode(HistoryReport.self, HistoryReport.arguments(), keepingIn: cache)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

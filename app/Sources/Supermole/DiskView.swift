@@ -19,12 +19,24 @@ final class DiskModel {
     /// The folders opened so far; `nil` is the whole-disk overview.
     private(set) var trail: [String?] = [nil]
     private(set) var result: AnalyzeResult?
+    /// No result for this folder on screen yet.
     private(set) var isLoading = false
+    /// A result is on screen while a fresh one is measured.
+    private(set) var isRefreshing = false
+    /// When the result on screen was measured, while it is one kept from
+    /// earlier; nil once it was measured just now.
+    private(set) var keptSince: Date?
     private(set) var errorMessage: String?
     private(set) var answers: [String: ExplainAnswers.Answer] = [:]
     private(set) var explainStates: [String: ExplainState] = [:]
     var selectedPath: String?
 
+    /// A kept measurement younger than this is shown without measuring
+    /// again: longer for the whole disk, whose scan takes a while.
+    static let overviewFreshness: TimeInterval = 15 * 60
+    static let folderFreshness: TimeInterval = 5 * 60
+
+    private let cache = ResultCache()
     private var loadTask: Task<Void, Never>?
     private var explainQueue: [ExplainRequest] = []
     private var explainTask: Task<Void, Never>?
@@ -54,27 +66,52 @@ final class DiskModel {
         selectedPath = rows[min(max(current + offset, 0), rows.count - 1)].path
     }
 
-    func load(using runner: MoleRunner, select: String? = nil) {
+    /// Shows the folder at the end of the trail: the measurement kept from
+    /// earlier at once, then a fresh one unless the kept one is recent.
+    /// `refresh` (the Refresh button, R) always measures again.
+    func load(using runner: MoleRunner, select: String? = nil, refresh: Bool = false) {
         loadTask?.cancel()
         let path = trail.last ?? nil
-        isLoading = true
+        let arguments = AnalyzeResult.arguments(for: path)
+        let freshness = path == nil ? Self.overviewFreshness : Self.folderFreshness
         errorMessage = nil
         loadTask = Task {
             do {
-                let result = try await runner.decode(AnalyzeResult.self, AnalyzeResult.arguments(for: path))
+                var onScreen = refresh && result != nil
+                if !refresh, let kept = await cache.kept(AnalyzeResult.self, for: arguments) {
+                    guard !Task.isCancelled else { return }
+                    try show(kept.value, select: select)
+                    keptSince = kept.savedAt
+                    onScreen = true
+                    if kept.isRecent(within: freshness) {
+                        isLoading = false
+                        isRefreshing = false
+                        return
+                    }
+                }
+                isLoading = !onScreen
+                isRefreshing = onScreen
+                let fresh = try await runner.decode(AnalyzeResult.self, arguments, keepingIn: cache)
                 guard !Task.isCancelled else { return }
-                self.result = result
-                self.answers = try ExplainAnswers.load()
-                // Coming back up keeps the folder just left selected, as the
-                // terminal does; anything else starts at the top.
-                let rows = result.sortedEntries
-                self.selectedPath = rows.first { $0.path == select }?.path ?? rows.first?.path
+                // A refresh keeps the row the person was on.
+                try show(fresh, select: onScreen ? selectedPath : select)
+                keptSince = nil
             } catch {
                 guard !Task.isCancelled else { return }
-                self.errorMessage = error.localizedDescription
+                errorMessage = error.localizedDescription
             }
-            self.isLoading = false
+            isLoading = false
+            isRefreshing = false
         }
+    }
+
+    private func show(_ result: AnalyzeResult, select: String?) throws {
+        self.result = result
+        answers = try ExplainAnswers.load()
+        // Coming back up keeps the folder just left selected, as the
+        // terminal does; anything else starts at the top.
+        let rows = result.sortedEntries
+        selectedPath = rows.first { $0.path == select }?.path ?? rows.first?.path
     }
 
     // MARK: Explain
@@ -214,13 +251,16 @@ struct DiskView: View {
                 }
                 .buttonStyle(.glass)
             }
+            if let keptSince = model.keptSince {
+                UpdatedLabel(savedAt: keptSince, isRefreshing: model.isRefreshing)
+            }
             Button {
-                model.load(using: runner, select: model.selectedPath)
+                model.load(using: runner, select: model.selectedPath, refresh: true)
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
             .buttonStyle(.glass)
-            .disabled(model.isLoading)
+            .disabled(model.isLoading || model.isRefreshing)
         }
         .entrance()
     }
@@ -300,7 +340,7 @@ struct DiskView: View {
             guard let entry else { return .ignored }
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
         case "r", "R":
-            model.load(using: runner, select: model.selectedPath)
+            model.load(using: runner, select: model.selectedPath, refresh: true)
         default:
             return .ignored
         }

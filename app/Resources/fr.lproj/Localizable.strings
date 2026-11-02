@@ -94,6 +94,7 @@
 "Version" = "Version";
 "About" = "À propos";
 "Supermole is an unofficial fork of Mole, modified by Airkul. It is not affiliated with or endorsed by the Mole project." = "Supermole est un fork non officiel de Mole, modifié par Airkul. Il n'est ni affilié au projet Mole ni approuvé par lui.";
+"Updated %@" = "Mis à jour %@";
 "Mole on GitHub" = "Mole sur GitHub";
 "Permissions" = "Autorisations";
 "Granted" = "Accordé";
