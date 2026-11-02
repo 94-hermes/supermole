@@ -16,6 +16,11 @@
 "Install" = "Installer";
 "Installing…" = "Installation…";
 "The installer finished, but mo is still missing." = "L'installation s'est terminée, mais le moteur est toujours introuvable.";
+"Try again" = "Réessayer";
+"Your Mole engine is older than this version of Supermole. An up-to-date copy is being installed for your account, without an administrator password." = "Ton moteur Mole est plus ancien que cette version de Supermole. Une copie à jour s'installe pour ton compte, sans mot de passe administrateur.";
+"Updating the engine…" = "Mise à jour du moteur…";
+"The engine just installed did not report a version this app can use." = "Le moteur qui vient d'être installé n'indique pas de version utilisable par l'app.";
+"The newest published engine (%@) is older than this app (%@). Try again later." = "Le moteur publié le plus récent (%1$@) est plus ancien que l'app (%2$@). Réessaie plus tard.";
 "Full Disk Access" = "Accès complet au disque";
 "To see your whole Mac, Supermole needs Full Disk Access. Without it, Mail, Messages, Safari and some caches stay hidden. Nothing leaves your Mac." = "Pour voir tout ton Mac, Supermole a besoin de l'accès complet au disque. Sans lui, Mail, Messages, Safari et certains caches lui restent invisibles. Rien ne quitte ton Mac.";
 "Open System Settings with the button below." = "Ouvre Réglages Système avec le bouton ci-dessous.";

@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// First launch: looks for `mo`, installs it when it is missing, then asks
-/// for Full Disk Access when macOS hides part of the Mac.
+/// First launch: looks for `mo`, installs it when it is missing or older
+/// than the app, then asks for Full Disk Access when macOS hides part of the
+/// Mac.
 struct SetupView: View {
     @Environment(AppModel.self) private var model
 
@@ -24,16 +25,24 @@ struct SetupView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 520)
-                installButton
+                installButton("Install")
             case .installing:
                 ProgressView("Installing…")
+                installLog
+            case .updatingEngine:
+                Text("Your Mole engine is older than this version of Supermole. An up-to-date copy is being installed for your account, without an administrator password.")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 520)
+                ProgressView("Updating the engine…")
                 installLog
             case .needsFullDiskAccess:
                 FullDiskAccessStep()
             case .failed(let message):
                 ErrorBanner(message: message).frame(maxWidth: 560)
                 installLog
-                installButton
+                installButton("Try again")
             case .ready:
                 EmptyView()
             }
@@ -44,11 +53,11 @@ struct SetupView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var installButton: some View {
+    private func installButton(_ title: LocalizedStringKey) -> some View {
         Button {
             Task { await model.install() }
         } label: {
-            Text("Install")
+            Text(title)
                 .font(.title3.weight(.semibold))
                 .frame(minWidth: 160)
                 .padding(.vertical, 4)

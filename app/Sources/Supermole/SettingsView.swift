@@ -34,13 +34,10 @@ struct SettingsView: View {
         }
     }
 
-    /// The first line `mo --version` prints, which names the version.
+    /// The version `mo --version` reports, or why it could not be read.
     private static func version(using runner: MoleRunner) async -> String {
         do {
-            let output = try await runner.run(["--version"])
-            let text = String(decoding: output.stdout, as: UTF8.self)
-            return text.split(separator: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                .map { String($0) } ?? text
+            return try await EngineVersion.read(from: runner).description
         } catch {
             return error.localizedDescription
         }

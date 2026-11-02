@@ -15,7 +15,7 @@ struct SupermoleApp: App {
                 .environment(model)
                 .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
                 .tint(Theme.indigo)
-                .task { model.locate() }
+                .task { await model.locate() }
         }
         .defaultSize(Self.defaultSize)
         .windowToolbarStyle(.unified)
