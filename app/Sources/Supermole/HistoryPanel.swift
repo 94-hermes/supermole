@@ -29,6 +29,9 @@ struct HistoryPanel: View {
     let runner: MoleRunner
     let model: HistoryModel
 
+    /// Rows after this one enter together, so a long history does not trickle in.
+    private static let lastStaggeredRow = 8
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -43,7 +46,7 @@ struct HistoryPanel: View {
                         Text("Nothing yet.").foregroundStyle(.secondary)
                     }
                     ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                        SessionRow(session: session).entrance(index)
+                        SessionRow(session: session).entrance(min(index, Self.lastStaggeredRow))
                     }
                 } else if model.errorMessage == nil {
                     ProgressView().frame(maxWidth: .infinity)

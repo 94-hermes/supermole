@@ -106,16 +106,50 @@ struct SelectableAppRow<Detail: View>: View {
     }
 }
 
-/// The app's own icon, as the Finder shows it.
+/// The app's own icon, as the Finder shows it, read off the main thread.
 struct AppIcon: View {
     let path: String
     var size: CGFloat = 32
 
+    @Environment(\.displayScale) private var scale
+    @State private var icon: CGImage?
+
     var body: some View {
-        Image(nsImage: NSWorkspace.shared.icon(forFile: path))
-            .resizable()
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        Group {
+            if let icon {
+                Image(decorative: icon, scale: scale)
+                    .resizable()
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+        .task(id: path) {
+            icon = await AppIconStore.shared.icon(for: path, pixels: Int(size * scale))
+        }
+    }
+}
+
+/// App icons drawn once per app and size, then kept for the app's life, so
+/// scrolling a list never asks the Finder again.
+@MainActor
+final class AppIconStore {
+    static let shared = AppIconStore()
+
+    private var icons: [String: CGImage] = [:]
+
+    func icon(for path: String, pixels: Int) async -> CGImage? {
+        let key = "\(pixels)@\(path)"
+        if let icon = icons[key] { return icon }
+        let icon = await Self.draw(path: path, pixels: pixels)
+        icons[key] = icon
+        return icon
+    }
+
+    nonisolated private static func draw(path: String, pixels: Int) async -> CGImage? {
+        var rect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
+        return NSWorkspace.shared.icon(forFile: path).cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
 }
 

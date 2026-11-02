@@ -41,9 +41,14 @@ final class DiskModel {
     private var explainQueue: [ExplainRequest] = []
     private var explainTask: Task<Void, Never>?
 
+    /// The result's rows, largest first, sorted once when it arrives.
+    private(set) var entries: [AnalyzeResult.Entry] = []
+    private var rowByPath: [String: Int] = [:]
+
     var canGoBack: Bool { trail.count > 1 }
-    var entries: [AnalyzeResult.Entry] { result?.sortedEntries ?? [] }
-    var selectedEntry: AnalyzeResult.Entry? { entries.first { $0.path == selectedPath } }
+    var selectedEntry: AnalyzeResult.Entry? {
+        selectedPath.flatMap { rowByPath[$0] }.map { entries[$0] }
+    }
 
     // MARK: Navigation
 
@@ -60,10 +65,9 @@ final class DiskModel {
     }
 
     func moveSelection(by offset: Int) {
-        let rows = entries
-        guard !rows.isEmpty else { return }
-        let current = rows.firstIndex { $0.path == selectedPath } ?? (offset > 0 ? -1 : rows.count)
-        selectedPath = rows[min(max(current + offset, 0), rows.count - 1)].path
+        guard !entries.isEmpty else { return }
+        let current = selectedPath.flatMap { rowByPath[$0] } ?? (offset > 0 ? -1 : entries.count)
+        selectedPath = entries[min(max(current + offset, 0), entries.count - 1)].path
     }
 
     /// Shows the folder at the end of the trail: the measurement kept from
@@ -80,7 +84,7 @@ final class DiskModel {
                 var onScreen = refresh && result != nil
                 if !refresh, let kept = await cache.kept(AnalyzeResult.self, for: arguments) {
                     guard !Task.isCancelled else { return }
-                    try show(kept.value, select: select)
+                    try await show(kept.value, select: select)
                     keptSince = kept.savedAt
                     onScreen = true
                     if kept.isRecent(within: freshness) {
@@ -94,7 +98,7 @@ final class DiskModel {
                 let fresh = try await runner.decode(AnalyzeResult.self, arguments, keepingIn: cache)
                 guard !Task.isCancelled else { return }
                 // A refresh keeps the row the person was on.
-                try show(fresh, select: onScreen ? selectedPath : select)
+                try await show(fresh, select: onScreen ? selectedPath : select)
                 keptSince = nil
             } catch {
                 guard !Task.isCancelled else { return }
@@ -105,13 +109,24 @@ final class DiskModel {
         }
     }
 
-    private func show(_ result: AnalyzeResult, select: String?) throws {
+    private func show(_ result: AnalyzeResult, select: String?) async throws {
+        let answers = try await Self.readAnswers()
+        // A newer load may have started while the store was read.
+        try Task.checkCancellation()
+        let rows = result.sortedEntries
         self.result = result
-        answers = try ExplainAnswers.load()
+        self.answers = answers
+        entries = rows
+        rowByPath = Dictionary(rows.enumerated().map { ($1.path, $0) }, uniquingKeysWith: { first, _ in first })
         // Coming back up keeps the folder just left selected, as the
         // terminal does; anything else starts at the top.
-        let rows = result.sortedEntries
-        selectedPath = rows.first { $0.path == select }?.path ?? rows.first?.path
+        selectedPath = select.flatMap { rowByPath[$0] }.map { rows[$0].path } ?? rows.first?.path
+    }
+
+    /// The explain store holds every answer ever given: read it off the
+    /// main thread.
+    nonisolated private static func readAnswers() async throws -> [String: ExplainAnswers.Answer] {
+        try ExplainAnswers.load()
     }
 
     // MARK: Explain
@@ -274,8 +289,8 @@ struct DiskView: View {
                 .id(model.result?.path ?? "")
         }
         VerdictSummary(entries: entries, answers: model.answers)
-        GlassCard(padding: 10) {
-            VStack(spacing: 2) {
+        GlassCard(padding: 10, liftsOnHover: false) {
+            LazyVStack(spacing: 2) {
                 ForEach(entries) { entry in
                     EntryRow(
                         entry: entry,

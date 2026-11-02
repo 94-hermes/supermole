@@ -4,6 +4,9 @@ import SwiftUI
 /// under the pointer.
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 22
+    /// Off for a card holding a long list: scaling it on hover redraws all
+    /// of its glass for nothing.
+    var liftsOnHover = true
     @ViewBuilder let content: Content
 
     @State private var isHovered = false
@@ -16,28 +19,37 @@ struct GlassCard<Content: View>: View {
             .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
             .scaleEffect(isHovered ? 1.008 : 1)
             .onHover { hovering in
+                guard liftsOnHover else { return }
                 withAnimation(Motion.hover) { isHovered = hovering }
             }
     }
 }
 
 /// Fades and rises into place once, `order` steps after the first card of
-/// its cascade.
+/// its cascade. Where `playsEntrance` is off (a space seen before) the card
+/// is simply there.
 struct EntranceEffect: ViewModifier {
     let order: Int
+    @Environment(\.playsEntrance) private var playsEntrance
     @State private var isVisible = false
 
     func body(content: Content) -> some View {
+        let shown = isVisible || !playsEntrance
         content
-            .opacity(isVisible ? 1 : 0)
-            .offset(y: isVisible ? 0 : 18)
-            .scaleEffect(isVisible ? 1 : 0.97, anchor: .top)
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : 18)
+            .scaleEffect(shown ? 1 : 0.97, anchor: .top)
             .onAppear {
+                guard playsEntrance else { return }
                 withAnimation(Motion.entrance.delay(Double(order) * Motion.stagger)) {
                     isVisible = true
                 }
             }
     }
+}
+
+extension EnvironmentValues {
+    @Entry var playsEntrance = true
 }
 
 extension View {

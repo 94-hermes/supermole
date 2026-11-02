@@ -107,6 +107,29 @@ public struct CleanPreview: Decodable, Sendable, Equatable {
         let trash = home + "/.Trash"
         return entries.contains { $0.path == trash || $0.path.hasPrefix(trash + "/") }
     }
+
+    /// What the preview screen shows, worked out once when the preview
+    /// arrives instead of on every redraw.
+    public struct Layout: Sendable, Equatable {
+        public let summaries: [Summary]
+        public let sortedSections: [Section]
+        public let emptiesTrash: Bool
+        private let entriesBySection: [String: [Entry]]
+
+        public init(_ preview: CleanPreview, home: String) {
+            summaries = preview.summaries
+            sortedSections = preview.sortedSections
+            emptiesTrash = preview.emptiesTrash(home: home)
+            entriesBySection = Dictionary(
+                summaries.map { ($0.name, preview.entries(in: $0.name)) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+
+        public func entries(in section: String) -> [Entry] {
+            entriesBySection[section] ?? []
+        }
+    }
 }
 
 /// Reads a cleanup's progress from `mo clean`'s output, whose sections start

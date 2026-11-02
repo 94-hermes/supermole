@@ -24,15 +24,18 @@ final class UninstallModel {
     static let listFreshness: TimeInterval = 5 * 60
 
     private(set) var phase: Phase = .loading
-    private(set) var apps: [InstalledApp] = []
+    private(set) var apps: [InstalledApp] = [] { didSet { arrange() } }
     /// When the listing on screen was made, while it is one kept from
     /// earlier; nil once it was listed just now.
     private(set) var listedSince: Date?
     private(set) var isRefreshing = false
     /// Ticked apps, by bundle path.
     var selection: Set<String> = []
-    var query = ""
-    var order: InstalledApps.Order = .size
+    var query = "" { didSet { arrange() } }
+    var order: InstalledApps.Order = .size { didSet { arrange() } }
+    /// The apps the search and the order leave, worked out when one of them
+    /// or the listing changes rather than on every redraw.
+    private(set) var shownApps: [InstalledApp] = []
     private(set) var withData = false
     /// What uninstalling runs: the ticked apps that need no administrator.
     private(set) var plan: UninstallPlan?
@@ -52,9 +55,12 @@ final class UninstallModel {
     private var hasLoaded = false
 
     var isBusy: Bool { phase == .planning || phase == .uninstalling }
-    var shownApps: [InstalledApp] { InstalledApps.arranged(apps, matching: query, by: order) }
     var selectedApps: [InstalledApp] { apps.filter { selection.contains($0.path) } }
     var selectedBytes: Int64 { selectedApps.reduce(0) { $0 + ($1.bytes ?? 0) } }
+
+    private func arrange() {
+        shownApps = InstalledApps.arranged(apps, matching: query, by: order)
+    }
 
     func loadIfNeeded(using runner: MoleRunner) {
         guard !hasLoaded else { return }
@@ -320,7 +326,7 @@ private struct AppListCard: View {
     let review: () -> Void
 
     var body: some View {
-        GlassCard(padding: 14) {
+        GlassCard(padding: 14, liftsOnHover: false) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {

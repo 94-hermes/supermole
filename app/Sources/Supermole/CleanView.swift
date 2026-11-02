@@ -18,6 +18,7 @@ final class CleanModel {
 
     private(set) var phase: Phase = .idle
     private(set) var preview: CleanPreview?
+    private(set) var layout: CleanPreview.Layout?
     private(set) var currentSection: String?
     private(set) var finishedSections: [String] = []
     private(set) var log = RunLog()
@@ -35,8 +36,10 @@ final class CleanModel {
             do {
                 let preview = try await runner.decodeReport(CleanPreview.self, CleanPreview.arguments)
                 guard !Task.isCancelled else { return }
+                let layout = CleanPreview.Layout(preview, home: FileManager.default.homeDirectoryForCurrentUser.path)
                 withAnimation(Motion.entrance) {
                     self.preview = preview
+                    self.layout = layout
                     self.phase = .preview
                 }
             } catch {
@@ -119,14 +122,14 @@ struct CleanView: View {
                     WorkingCard(title: "Looking for what can go…", detail: "Nothing is removed. This takes a minute or two.")
                         .entrance(1)
                 case .preview:
-                    if let preview = model.preview {
-                        previewContent(preview)
+                    if let preview = model.preview, let layout = model.layout {
+                        previewContent(preview, layout: layout)
                     }
                 case .cleaning:
                     CleaningCard(
                         current: model.currentSection,
                         finished: model.finishedSections,
-                        expected: model.preview?.sortedSections.count ?? 0
+                        expected: model.layout?.sortedSections.count ?? 0
                     ) {
                         model.stop()
                     }
@@ -162,30 +165,26 @@ struct CleanView: View {
     }
 
     @ViewBuilder
-    private func previewContent(_ preview: CleanPreview) -> some View {
-        SummaryCard(preview: preview, emptiesTrash: emptiesTrash(preview)) {
+    private func previewContent(_ preview: CleanPreview, layout: CleanPreview.Layout) -> some View {
+        SummaryCard(preview: preview, layout: layout) {
             confirmsCleanup = true
         } rescan: {
             model.scan(using: runner)
         }
         .entrance(1)
-        if !preview.sortedSections.isEmpty {
-            SectionChart(sections: preview.sortedSections).entrance(2)
+        if !layout.sortedSections.isEmpty {
+            SectionChart(sections: layout.sortedSections).entrance(2)
         }
-        if !preview.summaries.isEmpty {
-            GlassCard(padding: 10) {
+        if !layout.summaries.isEmpty {
+            GlassCard(padding: 10, liftsOnHover: false) {
                 VStack(spacing: 2) {
-                    ForEach(preview.summaries) { summary in
-                        SectionRow(summary: summary, entries: preview.entries(in: summary.name))
+                    ForEach(layout.summaries) { summary in
+                        SectionRow(summary: summary, entries: layout.entries(in: summary.name))
                     }
                 }
             }
             .entrance(3)
         }
-    }
-
-    private func emptiesTrash(_ preview: CleanPreview) -> Bool {
-        preview.emptiesTrash(home: FileManager.default.homeDirectoryForCurrentUser.path)
     }
 
     private var confirmationTitle: String {
@@ -195,7 +194,7 @@ struct CleanView: View {
 
     private var confirmationMessage: String {
         let base = String(localized: "Supermole does everything shown under each category, tool commands such as Homebrew or npm included. Caches rebuild themselves when apps need them.")
-        guard let preview = model.preview, emptiesTrash(preview) else { return base }
+        guard model.layout?.emptiesTrash == true else { return base }
         return base + " " + String(localized: "The Trash will be emptied.")
     }
 }
@@ -235,7 +234,7 @@ private struct StartCard: View {
 private struct SummaryCard: View {
     @Environment(AppModel.self) private var app
     let preview: CleanPreview
-    let emptiesTrash: Bool
+    let layout: CleanPreview.Layout
     let clean: () -> Void
     let rescan: () -> Void
 
@@ -254,7 +253,7 @@ private struct SummaryCard: View {
                                 .foregroundStyle(Theme.accent)
                                 .contentTransition(.numericText())
                         }
-                        Text("\(preview.items) items in \(preview.summaries.count) categories")
+                        Text("\(preview.items) items in \(layout.summaries.count) categories")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -272,9 +271,9 @@ private struct SummaryCard: View {
                     .controlSize(.large)
                     // A preview that stopped early skipped later sections; the
                     // real run would clean them unseen.
-                    .disabled(preview.summaries.isEmpty || !preview.isComplete)
+                    .disabled(layout.summaries.isEmpty || !preview.isComplete)
                 }
-                if emptiesTrash {
+                if layout.emptiesTrash {
                     Label("The Trash is emptied too.", systemImage: "trash")
                         .foregroundStyle(Theme.amber)
                 }

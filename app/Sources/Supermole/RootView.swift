@@ -40,6 +40,9 @@ struct RootView: View {
     @State private var clean = CleanModel()
     @State private var apps = AppsModel()
     @State private var history = HistoryModel()
+    /// Spaces left at least once: coming back to one shows it at once, its
+    /// cards without their entrance cascade.
+    @State private var visitedSpaces: Set<AppSpace> = []
 
     var body: some View {
         if model.phase == .ready, let runner = model.runner {
@@ -51,6 +54,7 @@ struct RootView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
             } detail: {
                 SpaceView(space: space ?? .home, runner: runner, home: home, clean: clean, apps: apps, disk: disk) { space = $0 }
+                    .environment(\.playsEntrance, !visitedSpaces.contains(space ?? .home))
                     .id(space)
                     .transition(.opacity.combined(with: .offset(y: 12)))
                     .animation(Motion.space, value: space)
@@ -76,6 +80,7 @@ struct RootView: View {
                         }
                     }
             }
+            .onChange(of: space) { left, _ in visitedSpaces.insert(left ?? .home) }
         } else {
             SetupView()
                 .background(AmbientBackground())

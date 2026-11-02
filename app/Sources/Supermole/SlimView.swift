@@ -176,7 +176,7 @@ private struct SlimListCard: View {
     let slim: () -> Void
 
     var body: some View {
-        GlassCard(padding: 14) {
+        GlassCard(padding: 14, liftsOnHover: false) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {

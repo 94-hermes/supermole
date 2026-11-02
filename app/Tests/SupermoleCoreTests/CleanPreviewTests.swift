@@ -31,6 +31,21 @@ final class CleanPreviewTests: XCTestCase {
         XCTAssertFalse(try preview().emptiesTrash(home: "/Users/other"))
     }
 
+    func testTheLayoutHoldsWhatThePreviewWorksOut() throws {
+        let preview = try preview()
+
+        let layout = CleanPreview.Layout(preview, home: "/Users/test")
+
+        XCTAssertEqual(layout.summaries, preview.summaries)
+        XCTAssertEqual(layout.sortedSections, preview.sortedSections)
+        XCTAssertTrue(layout.emptiesTrash)
+        for summary in layout.summaries {
+            XCTAssertEqual(layout.entries(in: summary.name), preview.entries(in: summary.name), summary.name)
+        }
+        XCTAssertEqual(layout.entries(in: "No such section"), [])
+        XCTAssertFalse(CleanPreview.Layout(preview, home: "/Users/other").emptiesTrash)
+    }
+
     func testSectionHeadersMarkProgressAndNothingElseDoes() {
         XCTAssertEqual(CleanProgress.section(in: "➤ User essentials"), "User essentials")
         XCTAssertEqual(CleanProgress.section(in: "\u{1B}[1;35m➤ Browsers\u{1B}[0m"), "Browsers")
